@@ -5,13 +5,16 @@ trigger:
       - develop
 
 variables:
-  imageName: 'azdevops-cicd-sample'
-  azureSubscription: 'your-service-connection'
-  acrName: 'youracrname'
-  rgName: 'cicd-rg'
-  location: 'eastus'
-  appServicePlan: 'cicd-plan'
-  webAppName: 'cicd-webapp-${{ variables['Build.SourceBranchName'] }}'
+  imageName: azdevops-cicd-sample
+  azureSubscription: AzureSubscriptionConnection
+  acrName: nithinkatruacr
+  rgName: ci-cd-rg
+  location: eastus
+  appServicePlan: cicd-plan
+  webAppName: "cicd-webapp-$(Build.SourceBranchName)"
+  tfStateStorageAccount: tfstateYourSuffix
+  tfStateContainer: tfstate
+  sonarOrg: your-sonar-org
 
 stages:
   - stage: Build
@@ -51,7 +54,7 @@ stages:
           - task: SonarCloudPrepare@1
             inputs:
               SonarCloud: 'SonarCloud'
-              organization: 'your-org'
+              organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'
               cliProjectKey: 'azdevops-cicd-sample'
@@ -88,7 +91,11 @@ stages:
                     provider: 'azurerm'
                     command: 'init'
                     workingDirectory: 'terraform'
-
+                    backendServiceArm: '$(azureSubscription)'
+                    backendAzureRmResourceGroupName: '$(rgName)'
+                    backendAzureRmStorageAccountName: '$(tfStateStorageAccount)'
+                    backendAzureRmContainerName: '$(tfStateContainer)'
+                    backendAzureRmKey: 'terraform.tfstate'
                 - task: TerraformTaskV1@0
                   displayName: 'Terraform apply'
                   inputs:
@@ -96,12 +103,6 @@ stages:
                     command: 'apply'
                     environmentServiceName: '$(azureSubscription)'
                     workingDirectory: 'terraform'
-                    ensureBackend: true
-                    backendServiceArm: '$(azureSubscription)'
-                    backendAzureRmResourceGroupName: '$(rgName)'
-                    backendAzureRmStorageAccountName: 'yourtfstateaccount'
-                    backendAzureRmContainerName: 'tfstate'
-                    backendAzureRmKey: 'terraform.tfstate'
                     args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
 
                 - task: AzureWebAppContainer@1

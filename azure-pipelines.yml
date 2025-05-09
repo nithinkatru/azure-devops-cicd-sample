@@ -54,21 +54,22 @@ stages:
               repository: $(acrName).azurecr.io/$(imageName)
               tags: $(Build.BuildId)
 
-          - task: SonarCloudPrepare@1
+          # === SonarCloud analysis (upgraded to version 2) ===
+          - task: SonarCloudPrepare@2
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'SonarCloud'
+              SonarCloud: 'SonarCloud'             # your service connection
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'
               cliProjectKey: 'azdevops-cicd-sample'
               cliProjectName: 'CI-CD Sample'
 
-          - task: SonarCloudAnalyze@1
+          - task: SonarCloudAnalyze@2
             displayName: 'Run SonarCloud analysis'
 
-          - task: SonarCloudPublish@1
-            displayName: 'Publish SonarCloud results'
+          - task: SonarCloudPublish@2
+            displayName: 'Publish SonarCloud Quality Gate'
 
           - publish: $(Build.ArtifactStagingDirectory)
             artifact: drop

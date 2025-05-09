@@ -1,0 +1,113 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+variables:
+  imageName: 'azdevops-cicd-sample'
+  azureSubscription: 'your-service-connection'
+  acrName: 'youracrname'
+  rgName: 'cicd-rg'
+  location: 'eastus'
+  appServicePlan: 'cicd-plan'
+  webAppName: 'cicd-webapp-${{ variables['Build.SourceBranchName'] }}'
+
+stages:
+  - stage: Build
+    displayName: 'CI: Build and Test'
+    jobs:
+      - job: Build
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: self
+            persistCredentials: true
+
+          - task: NodeTool@0
+            inputs:
+              versionSpec: '14.x'
+
+          - script: npm install
+            displayName: 'Install dependencies'
+
+          - script: npm run lint
+            displayName: 'Lint code'
+
+          - script: npm test
+            displayName: 'Run tests'
+          
+          - script: |
+              docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
+            displayName: 'Build Docker image'
+
+          - task: Docker@2
+            displayName: 'Push image to ACR'
+            inputs:
+              command: push
+              repository: $(acrName).azurecr.io/$(imageName)
+              tags: $(Build.BuildId)
+
+          - task: SonarCloudPrepare@1
+            inputs:
+              SonarCloud: 'SonarCloud'
+              organization: 'your-org'
+              scannerMode: 'CLI'
+              configMode: 'manual'
+              cliProjectKey: 'azdevops-cicd-sample'
+              cliProjectName: 'CI-CD Sample'
+
+          - task: SonarCloudAnalyze@1
+
+          - task: SonarCloudPublish@1
+
+          - publish: $(Build.ArtifactStagingDirectory)
+            artifact: drop
+
+  - stage: Deploy
+    displayName: 'CD: Terraform and Deploy'
+    dependsOn: Build
+    jobs:
+      - deployment: Deploy
+        environment: '$(Build.SourceBranchName)'
+        pool:
+          vmImage: 'ubuntu-latest'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                - task: TerraformInstaller@0
+                  inputs:
+                    terraformVersion: '1.0.0'
+
+                - task: TerraformTaskV1@0
+                  displayName: 'Terraform init'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'init'
+                    workingDirectory: 'terraform'
+
+                - task: TerraformTaskV1@0
+                  displayName: 'Terraform apply'
+                  inputs:
+                    provider: 'azurerm'
+                    command: 'apply'
+                    environmentServiceName: '$(azureSubscription)'
+                    workingDirectory: 'terraform'
+                    ensureBackend: true
+                    backendServiceArm: '$(azureSubscription)'
+                    backendAzureRmResourceGroupName: '$(rgName)'
+                    backendAzureRmStorageAccountName: 'yourtfstateaccount'
+                    backendAzureRmContainerName: 'tfstate'
+                    backendAzureRmKey: 'terraform.tfstate'
+                    args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
+
+                - task: AzureWebAppContainer@1
+                  displayName: 'Deploy to Web App'
+                  inputs:
+                    azureSubscription: '$(azureSubscription)'
+                    resourceGroupName: '$(rgName)'
+                    appName: '$(webAppName)'
+                    imageName: '$(acrName).azurecr.io/$(imageName):$(Build.BuildId)'

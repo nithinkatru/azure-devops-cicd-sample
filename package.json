@@ -1,0 +1,21 @@
+{
+    "name": "azdevops-cicd-sample",
+    "version": "1.0.0",
+    "main": "src/index.js",
+    "scripts": {
+        "start": "node src/index.js",
+        "lint": "eslint src/**",
+        "test": "jest --coverage"
+    },
+    "dependencies": {
+        "azdevops-cicd-sample": "file:",
+        "express": "^4.17.1",
+        "swagger-ui-express": "^4.1.6"
+    },
+    "devDependencies": {
+        "eslint": "^7.32.0",
+        "eslint-plugin-node": "^11.1.0",
+        "jest": "^27.0.6",
+        "supertest": "^6.1.6"
+    }
+}

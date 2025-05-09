@@ -21,8 +21,11 @@ stages:
     displayName: 'CI: Build and Test'
     jobs:
       - job: Build
+        displayName: 'Self‑Hosted Build'
         pool:
-          vmImage: 'ubuntu-latest'
+          name: LocalSelfHostedPool
+          demands:
+            - agent.os -equals Windows_NT
         steps:
           - checkout: self
             persistCredentials: true
@@ -39,7 +42,7 @@ stages:
 
           - script: npm test
             displayName: 'Run tests'
-          
+
           - script: |
               docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
             displayName: 'Build Docker image'
@@ -52,6 +55,7 @@ stages:
               tags: $(Build.BuildId)
 
           - task: SonarCloudPrepare@1
+            displayName: 'Prepare SonarCloud analysis'
             inputs:
               SonarCloud: 'SonarCloud'
               organization: '$(sonarOrg)'
@@ -61,8 +65,10 @@ stages:
               cliProjectName: 'CI-CD Sample'
 
           - task: SonarCloudAnalyze@1
+            displayName: 'Run SonarCloud analysis'
 
           - task: SonarCloudPublish@1
+            displayName: 'Publish SonarCloud results'
 
           - publish: $(Build.ArtifactStagingDirectory)
             artifact: drop
@@ -72,6 +78,7 @@ stages:
     dependsOn: Build
     jobs:
       - deployment: Deploy
+        displayName: 'Terraform + WebApp Deploy'
         environment: '$(Build.SourceBranchName)'
         pool:
           vmImage: 'ubuntu-latest'
@@ -82,11 +89,12 @@ stages:
                 - checkout: self
 
                 - task: TerraformInstaller@0
+                  displayName: 'Install Terraform'
                   inputs:
                     terraformVersion: '1.0.0'
 
                 - task: TerraformTaskV1@0
-                  displayName: 'Terraform init'
+                  displayName: 'Terraform Init'
                   inputs:
                     provider: 'azurerm'
                     command: 'init'
@@ -96,8 +104,9 @@ stages:
                     backendAzureRmStorageAccountName: '$(tfStateStorageAccount)'
                     backendAzureRmContainerName: '$(tfStateContainer)'
                     backendAzureRmKey: 'terraform.tfstate'
+
                 - task: TerraformTaskV1@0
-                  displayName: 'Terraform apply'
+                  displayName: 'Terraform Apply'
                   inputs:
                     provider: 'azurerm'
                     command: 'apply'
@@ -106,7 +115,7 @@ stages:
                     args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
 
                 - task: AzureWebAppContainer@1
-                  displayName: 'Deploy to Web App'
+                  displayName: 'Deploy to Azure Web App'
                   inputs:
                     azureSubscription: '$(azureSubscription)'
                     resourceGroupName: '$(rgName)'

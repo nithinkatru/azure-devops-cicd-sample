@@ -23,7 +23,7 @@ stages:
       - job: Build
         displayName: 'Self‑Hosted Build'
         pool:
-          name: LocalSelfHostedPool
+          name: LocalSelfHostedPool1
           demands:
             - agent.os -equals Windows_NT
         steps:

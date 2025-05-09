@@ -14,7 +14,7 @@ variables:
   webAppName: "cicd-webapp-$(Build.SourceBranchName)"
   tfStateStorageAccount: tfstateYourSuffix
   tfStateContainer: tfstate
-  sonarOrg: your-sonar-org
+  sonarOrg:  akhil-mano52020
 
 stages:
   - stage: Build
@@ -58,7 +58,7 @@ stages:
           - task: SonarCloudPrepare@2
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'SonarCloud'             # your service connection
+              SonarCloud: 'azure-pipelines-token'             # your service connection
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'

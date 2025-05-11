@@ -5,17 +5,16 @@ trigger:
       - develop
 
 variables:
-  imageName: azdevops-cicd-sample           # repository name inside ACR
+  imageName: azdevops-cicd-sample           # repo name inside ACR
   azureSubscription: AzureSubscriptionConnection
-  acrName: nithinkatruacr                   # <registry>.azurecr.io (loginServer)
+  acrName: nithinkatruacr                   # nithinkatruacr.azurecr.io
   rgName: ci-cd-rg
-  tfStateStorageAccount: tfstateYourSuffix  # change to the actual SA name
+  tfStateStorageAccount: tfstateYourSuffix  # update to actual SA
   tfStateContainer: tfstate
   sonarOrg: akhil-mano52020
 
-stages:
-
 # ──────────────────────────────  BUILD / TEST / PUSH  ──────────────────────────
+stages:
 - stage: Build
   displayName: 'CI: Build, Test & Sonar'
   jobs:
@@ -23,14 +22,13 @@ stages:
     displayName: 'Self-Hosted Windows Build'
     pool:
       name: LocalSelfHostedPool1
-      demands: 
+      demands:
         - agent.os -equals Windows_NT
     steps:
-    # checkout repo
     - checkout: self
       persistCredentials: true
 
-    # login to ACR so docker can push later
+    # 1 — log in to ACR
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
@@ -40,7 +38,7 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
-    # Node 14 + install / lint / test
+    # 2 — Node 14, install, lint, test
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
       inputs:
@@ -58,17 +56,17 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
-    # build & push image (PowerShell—safe on Windows agents)
+    # 3 — build & push image (PowerShell task, multiline is fine)
     - task: PowerShell@2
-      displayName: 'Build & Push Docker image'
+      displayName: 'Build & push Docker image'
       inputs:
         targetType: inline
+        workingDirectory: $(Build.SourcesDirectory)
         script: |
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
-        workingDirectory: $(Build.SourcesDirectory)
 
-    # SonarCloud analysis (v3 tasks)
+    # 4 — SonarCloud (v3)
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -85,7 +83,6 @@ stages:
     - task: SonarCloudPublish@3
       displayName: 'Publish SonarCloud Quality Gate'
 
-    # publish any build artefacts if you need them
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
@@ -104,7 +101,6 @@ stages:
         deploy:
         - checkout: self
 
-        # Terraform
         - task: TerraformInstaller@0
           displayName: 'Install Terraform'
           inputs:
@@ -131,7 +127,6 @@ stages:
             workingDirectory: terraform
             args: -auto-approve -var "environment=$(Build.SourceBranchName)"
 
-        # Deploy image to Web App for Containers
         - task: AzureWebAppContainer@1
           displayName: 'Deploy to Azure Web App'
           inputs:

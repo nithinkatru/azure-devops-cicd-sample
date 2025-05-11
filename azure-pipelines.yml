@@ -8,125 +8,130 @@ variables:
   imageName: azdevops-cicd-sample
   azureSubscription: AzureSubscriptionConnection
   acrName: nithinkatruacr
-  rgName: ci-cd-rg
   sonarOrg: akhil-mano52020
 
 stages:
-  - stage: Build
-    displayName: CI: Build, Test & Sonar
-    jobs:
-      - job: Build
-        displayName: Self‑Hosted Build
-        pool:
-          name: LocalSelfHostedPool1
-          demands:
-            - agent.os -equals Windows_NT
-        steps:
-          - checkout: self
-            persistCredentials: true
+- stage: Build
+  displayName: CI: Build, Test & Docker
+  jobs:
+  - job: Build
+    displayName: Self‑Hosted Build
+    pool:
+      name: LocalSelfHostedPool1
+      demands:
+        - agent.os -equals Windows_NT
+    steps:
+    - checkout: self
+      persistCredentials: true
 
-          # Log in to ACR
-          - task: AzureCLI@2
-            displayName: Login to ACR
+    # 1) Login to ACR in the repo folder
+    - task: AzureCLI@2
+      displayName: Login to ACR
+      inputs:
+        azureSubscription: '$(azureSubscription)'
+        scriptType: ps
+        scriptLocation: inlineScript
+        inlineScript: |
+          az acr login --name $(acrName)
+      workingDirectory: $(Build.SourcesDirectory)
+
+    # 2) Node / test
+    - task: NodeTool@0
+      displayName: Use Node.js 14
+      inputs:
+        versionSpec: '14.x'
+
+    - script: npm install
+      displayName: Install dependencies
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - script: npm run lint
+      displayName: Lint code
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - script: npm test
+      displayName: Run tests
+      workingDirectory: $(Build.SourcesDirectory)
+
+    # 3) Build + push docker with correct context
+    - script: |
+        docker build \
+          -f $(Build.SourcesDirectory)/Dockerfile \
+          -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) \
+          $(Build.SourcesDirectory)
+      displayName: Build Docker image
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - script: |
+        docker push $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
+      displayName: Push image to ACR
+      workingDirectory: $(Build.SourcesDirectory)
+
+    # 4) SonarCloud analysis (v3)
+    - task: SonarCloudPrepare@3
+      displayName: Prepare SonarCloud analysis
+      inputs:
+        SonarCloud: 'SonarCloud'
+        organization: '$(sonarOrg)'
+        scannerMode: CLI
+        configMode: manual
+        cliProjectKey: azdevops-cicd-sample
+        cliProjectName: CI-CD Sample
+
+    - task: SonarCloudAnalyze@3
+      displayName: Run SonarCloud analysis
+
+    - task: SonarCloudPublish@3
+      displayName: Publish SonarCloud Quality Gate
+
+    - publish: $(Build.ArtifactStagingDirectory)
+      artifact: drop
+
+- stage: Deploy
+  displayName: CD: Terraform + WebApp Deploy
+  dependsOn: Build
+  jobs:
+  - deployment: Deploy
+    displayName: Terraform + WebApp Deploy
+    environment: '$(Build.SourceBranchName)'
+    pool:
+      vmImage: ubuntu-latest
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: self
+
+          - task: TerraformInstaller@0
+            displayName: Install Terraform
+            inputs:
+              terraformVersion: '1.0.0'
+
+          - task: TerraformTaskV1@0
+            displayName: Terraform Init
+            inputs:
+              provider: azurerm
+              command: init
+              workingDirectory: terraform
+              backendServiceArm: '$(azureSubscription)'
+              backendAzureRmResourceGroupName: '$(rgName)'
+              backendAzureRmStorageAccountName: '$(acrName)'
+              backendAzureRmContainerName: '$(imageName)'
+              backendAzureRmKey: terraform.tfstate
+
+          - task: TerraformTaskV1@0
+            displayName: Terraform Apply
+            inputs:
+              provider: azurerm
+              command: apply
+              environmentServiceName: '$(azureSubscription)'
+              workingDirectory: terraform
+              args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
+
+          - task: AzureWebAppContainer@1
+            displayName: Deploy to Azure Web App
             inputs:
               azureSubscription: '$(azureSubscription)'
-              scriptType: ps
-              scriptLocation: inlineScript
-              inlineScript: |
-                az acr login --name $(acrName)
-
-          # Node + tests
-          - task: NodeTool@0
-            displayName: Use Node.js 14
-            inputs:
-              versionSpec: '14.x'
-
-          - script: npm install
-            displayName: Install dependencies
-
-          - script: npm run lint
-            displayName: Lint code
-
-          - script: npm test
-            displayName: Run tests
-
-          # Build Docker image (explicitly in the repo root)
-          - script: |
-              docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
-            displayName: Build Docker image
-            workingDirectory: $(Build.SourcesDirectory)
-
-          # Push Docker image (same working dir)
-          - script: |
-              docker push $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
-            displayName: Push image to ACR
-            workingDirectory: $(Build.SourcesDirectory)
-
-          # SonarCloud analysis (v3)
-          - task: SonarCloudPrepare@3
-            displayName: Prepare SonarCloud analysis
-            inputs:
-              SonarCloud: 'SonarCloud'
-              organization: '$(sonarOrg)'
-              scannerMode: CLI
-              configMode: manual
-              cliProjectKey: azdevops-cicd-sample
-              cliProjectName: CI-CD Sample
-
-          - task: SonarCloudAnalyze@3
-            displayName: Run SonarCloud analysis
-
-          - task: SonarCloudPublish@3
-            displayName: Publish SonarCloud Quality Gate
-
-          - publish: $(Build.ArtifactStagingDirectory)
-            artifact: drop
-
-  - stage: Deploy
-    displayName: CD: Terraform + WebApp Deploy
-    dependsOn: Build
-    jobs:
-      - deployment: Deploy
-        displayName: Terraform + WebApp Deploy
-        environment: '$(Build.SourceBranchName)'
-        pool:
-          vmImage: ubuntu-latest
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                - checkout: self
-
-                - task: TerraformInstaller@0
-                  displayName: Install Terraform
-                  inputs:
-                    terraformVersion: '1.0.0'
-
-                - task: TerraformTaskV1@0
-                  displayName: Terraform Init
-                  inputs:
-                    provider: azurerm
-                    command: init
-                    workingDirectory: terraform
-                    backendServiceArm: '$(azureSubscription)'
-                    backendAzureRmResourceGroupName: '$(rgName)'
-                    backendAzureRmStorageAccountName: '$(acrName)'
-                    backendAzureRmContainerName: '$(imageName)'
-                    backendAzureRmKey: terraform.tfstate
-
-                - task: TerraformTaskV1@0
-                  displayName: Terraform Apply
-                  inputs:
-                    provider: azurerm
-                    command: apply
-                    environmentServiceName: '$(azureSubscription)'
-                    workingDirectory: terraform
-                    args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
-
-                - task: AzureWebAppContainer@1
-                  displayName: Deploy to Azure Web App
-                  inputs:
-                    azureSubscription: '$(azureSubscription)'
-                    resourceGroupName: '$(rgName)'
-                    appName: 'cicd-webapp-$(Build.SourceBranchName)'
-                    imageName: '$(acrName).azurecr.io/$(imageName):$(Build.BuildId)'
+              resourceGroupName: '$(rgName)'
+              appName: 'cicd-webapp-$(Build.SourceBranchName)'
+              imageName: '$(acrName).azurecr.io/$(imageName):$(Build.BuildId)'

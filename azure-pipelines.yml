@@ -4,10 +4,10 @@ trigger:
       - main
       - develop
 
-
 variables:
   imageName: azdevops-cicd-sample
-  azureSubscription: 065cdc71-cbc8-4c74-9214-17d87ae5ada1
+  # <-- use the service‑connection NAME, not its GUID
+  azureSubscription: AzureSubscriptionConnection
   acrName: nithinkatruacr
   rgName: ci-cd-rg
   location: eastus
@@ -31,7 +31,7 @@ stages:
           - checkout: self
             persistCredentials: true
 
-          # — log in to ACR so docker push is authorized —
+          # Log in to ACR
           - task: AzureCLI@2
             displayName: 'Login to ACR'
             inputs:
@@ -67,7 +67,7 @@ stages:
               repository: $(acrName).azurecr.io/$(imageName)
               tags: $(Build.BuildId)
 
-          # === SonarCloud analysis (v3 tasks) ===
+          # SonarCloud (v3 tasks)
           - task: SonarCloudPrepare@3
             displayName: 'Prepare SonarCloud analysis'
             inputs:

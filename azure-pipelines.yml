@@ -5,15 +5,15 @@ trigger:
       - develop
 
 variables:
-  imageName: azdevops-cicd-sample           # repo name inside ACR
+  imageName: azdevops-cicd-sample
   azureSubscription: AzureSubscriptionConnection
-  acrName: nithinkatruacr                   # nithinkatruacr.azurecr.io
+  acrName: nithinkatruacr
   rgName: ci-cd-rg
-  tfStateStorageAccount: tfstateYourSuffix  # update to actual SA
+  tfStateStorageAccount: tfstateYourSuffix
   tfStateContainer: tfstate
   sonarOrg: akhil-mano52020
 
-# ──────────────────────────────  BUILD / TEST / PUSH  ──────────────────────────
+# ───────────────────────────  BUILD / TEST / PUSH  ───────────────────────────
 stages:
 - stage: Build
   displayName: 'CI: Build, Test & Sonar'
@@ -28,7 +28,7 @@ stages:
     - checkout: self
       persistCredentials: true
 
-    # 1 — log in to ACR
+    # 1 — log in to ACR
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
@@ -38,7 +38,7 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
-    # 2 — Node 14, install, lint, test
+    # 2 — Node setup, lint, test
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
       inputs:
@@ -56,19 +56,17 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
-    # 3 — build & push image (PowerShell task, multiline is fine)
-        # Build + push image (PowerShell task, runs in repo root)
+    # 3 — build & push image (PowerShell task)
     - task: PowerShell@2
       displayName: 'Build & push Docker image'
       inputs:
         targetType: inline
-        workingDirectory: $(Build.SourcesDirectory)      # <─--- must be inside inputs
+        workingDirectory: $(Build.SourcesDirectory)
         script: |
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
-
-    # 4 — SonarCloud (v3)
+    # 4 — SonarCloud
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -88,7 +86,7 @@ stages:
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
-# ────────────────────────────────  DEPLOY  ────────────────────────────────────
+# ───────────────────────────────  DEPLOY  ────────────────────────────────────
 - stage: Deploy
   displayName: 'CD: Terraform + WebApp Deploy'
   dependsOn: Build

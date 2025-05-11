@@ -16,7 +16,7 @@ stages:
     displayName: 'CI: Build, Test & Sonar'
     jobs:
       - job: Build
-        displayName: 'Self‑Hosted Build'
+        displayName: 'Self-Hosted Build'
         pool:
           name: LocalSelfHostedPool1
           demands:
@@ -26,6 +26,7 @@ stages:
             persistCredentials: true
 
           - task: NodeTool@0
+            displayName: 'Use Node.js 14'
             inputs:
               versionSpec: '14.x'
 
@@ -38,22 +39,10 @@ stages:
           - script: npm test
             displayName: 'Run tests'
 
-          # === REPLACE this old “Build Docker image” step
-          # - script: |
-          #     docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
-          #   displayName: 'Build Docker image'
-          # - task: Docker@2
-          #   displayName: 'Push image to ACR'
-          #   inputs:
-          #     command: push
-          #     repository: $(acrName).azurecr.io/$(imageName)
-          #     tags: $(Build.BuildId)
-
-          # === WITH this Docker@2 “buildAndPush” step ===
           - task: Docker@2
             displayName: 'Build & Push to ACR'
             inputs:
-              containerRegistry: '$(azureSubscription)'      # your ACR connection
+              containerRegistry: 'nithinkatruacr-connection'
               command: buildAndPush
               repository: $(acrName).azurecr.io/$(imageName)
               dockerfile: '$(Build.SourcesDirectory)/Dockerfile'

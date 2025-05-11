@@ -16,7 +16,7 @@ stages:
     displayName: 'CI: Build, Test & Sonar'
     jobs:
       - job: Build
-        displayName: 'Self-Hosted Build'
+        displayName: 'Self‑Hosted Build'
         pool:
           name: LocalSelfHostedPool1
           demands:
@@ -38,13 +38,26 @@ stages:
           - script: npm test
             displayName: 'Run tests'
 
+          # === REPLACE this old “Build Docker image” step
+          # - script: |
+          #     docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
+          #   displayName: 'Build Docker image'
+          # - task: Docker@2
+          #   displayName: 'Push image to ACR'
+          #   inputs:
+          #     command: push
+          #     repository: $(acrName).azurecr.io/$(imageName)
+          #     tags: $(Build.BuildId)
+
+          # === WITH this Docker@2 “buildAndPush” step ===
           - task: Docker@2
             displayName: 'Build & Push to ACR'
             inputs:
-              containerRegistry: $(azureSubscription)
-              repository: $(acrName).azurecr.io/$(imageName)
+              containerRegistry: '$(azureSubscription)'      # your ACR connection
               command: buildAndPush
-              Dockerfile: $(Build.SourcesDirectory)/Dockerfile
+              repository: $(acrName).azurecr.io/$(imageName)
+              dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
+              context: '$(Build.SourcesDirectory)'
               tags: |
                 $(Build.BuildId)
 

@@ -4,6 +4,8 @@ trigger:
       - main
       - develop
 
+# NOTE: Your self-hosted Windows agent is running at ~96% memory use.
+# You may need to bump its RAM or switch the Sonar steps onto ubuntu-latest.
 variables:
   imageName: azdevops-cicd-sample
   azureSubscription: AzureSubscriptionConnection
@@ -22,6 +24,8 @@ stages:
     jobs:
       - job: Build
         displayName: 'Self‑Hosted Build'
+        # If memory is an issue, you can switch this job to:
+        # pool: { vmImage: 'windows-latest' }
         pool:
           name: LocalSelfHostedPool1
           demands:
@@ -54,21 +58,21 @@ stages:
               repository: $(acrName).azurecr.io/$(imageName)
               tags: $(Build.BuildId)
 
-          # === SonarCloud analysis ===
-          - task: SonarCloudPrepare@2
+          # === SonarCloud analysis (upgrade to v3 tasks) ===
+          - task: SonarCloudPrepare@3
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'SonarCloud'            # matches your service-connection name
+              SonarCloud: 'SonarCloud'               # your service-connection name
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'
               cliProjectKey: 'azdevops-cicd-sample'
               cliProjectName: 'CI-CD Sample'
 
-          - task: SonarCloudAnalyze@2
+          - task: SonarCloudAnalyze@3
             displayName: 'Run SonarCloud analysis'
 
-          - task: SonarCloudPublish@2
+          - task: SonarCloudPublish@3
             displayName: 'Publish SonarCloud Quality Gate'
 
           - publish: $(Build.ArtifactStagingDirectory)
@@ -100,7 +104,7 @@ stages:
                     provider: 'azurerm'
                     command: 'init'
                     workingDirectory: 'terraform'
-                    backendServiceArm: '$(azureSubscription)'          # your ARM connection
+                    backendServiceArm: '$(azureSubscription)'
                     backendAzureRmResourceGroupName: '$(rgName)'
                     backendAzureRmStorageAccountName: '$(tfStateStorageAccount)'
                     backendAzureRmContainerName: '$(tfStateContainer)'

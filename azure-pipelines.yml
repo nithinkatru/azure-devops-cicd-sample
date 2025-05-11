@@ -28,7 +28,6 @@ stages:
     - checkout: self
       persistCredentials: true
 
-    # 1 — log in to ACR
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
@@ -38,7 +37,6 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
-    # 2 — Node setup, lint, test
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
       inputs:
@@ -56,7 +54,6 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
-    # 3 — build & push image (PowerShell task)
     - task: PowerShell@2
       displayName: 'Build & push Docker image'
       inputs:
@@ -66,7 +63,6 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
-    # 4 — SonarCloud
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -99,38 +95,39 @@ stages:
     strategy:
       runOnce:
         deploy:
-        - checkout: self
+          steps:                 # ←── added this mapping key
+          - checkout: self
 
-        - task: TerraformInstaller@0
-          displayName: 'Install Terraform'
-          inputs:
-            terraformVersion: 1.0.0
+          - task: TerraformInstaller@0
+            displayName: 'Install Terraform'
+            inputs:
+              terraformVersion: 1.0.0
 
-        - task: TerraformTaskV1@0
-          displayName: 'Terraform Init'
-          inputs:
-            provider: azurerm
-            command: init
-            workingDirectory: terraform
-            backendServiceArm: $(azureSubscription)
-            backendAzureRmResourceGroupName: $(rgName)
-            backendAzureRmStorageAccountName: $(tfStateStorageAccount)
-            backendAzureRmContainerName: $(tfStateContainer)
-            backendAzureRmKey: terraform.tfstate
+          - task: TerraformTaskV1@0
+            displayName: 'Terraform Init'
+            inputs:
+              provider: azurerm
+              command: init
+              workingDirectory: terraform
+              backendServiceArm: $(azureSubscription)
+              backendAzureRmResourceGroupName: $(rgName)
+              backendAzureRmStorageAccountName: $(tfStateStorageAccount)
+              backendAzureRmContainerName: $(tfStateContainer)
+              backendAzureRmKey: terraform.tfstate
 
-        - task: TerraformTaskV1@0
-          displayName: 'Terraform Apply'
-          inputs:
-            provider: azurerm
-            command: apply
-            environmentServiceName: $(azureSubscription)
-            workingDirectory: terraform
-            args: -auto-approve -var "environment=$(Build.SourceBranchName)"
+          - task: TerraformTaskV1@0
+            displayName: 'Terraform Apply'
+            inputs:
+              provider: azurerm
+              command: apply
+              environmentServiceName: $(azureSubscription)
+              workingDirectory: terraform
+              args: -auto-approve -var "environment=$(Build.SourceBranchName)"
 
-        - task: AzureWebAppContainer@1
-          displayName: 'Deploy to Azure Web App'
-          inputs:
-            azureSubscription: $(azureSubscription)
-            resourceGroupName: $(rgName)
-            appName: cicd-webapp-$(Build.SourceBranchName)
-            imageName: $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
+          - task: AzureWebAppContainer@1
+            displayName: 'Deploy to Azure Web App'
+            inputs:
+              azureSubscription: $(azureSubscription)
+              resourceGroupName: $(rgName)
+              appName: cicd-webapp-$(Build.SourceBranchName)
+              imageName: $(acrName).azurecr.io/$(imageName):$(Build.BuildId)

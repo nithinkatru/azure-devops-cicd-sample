@@ -57,14 +57,16 @@ stages:
       workingDirectory: $(Build.SourcesDirectory)
 
     # 3 — build & push image (PowerShell task, multiline is fine)
+        # Build + push image (PowerShell task, runs in repo root)
     - task: PowerShell@2
       displayName: 'Build & push Docker image'
       inputs:
         targetType: inline
-        workingDirectory: $(Build.SourcesDirectory)
+        workingDirectory: $(Build.SourcesDirectory)      # <─--- must be inside inputs
         script: |
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
+
 
     # 4 — SonarCloud (v3)
     - task: SonarCloudPrepare@3

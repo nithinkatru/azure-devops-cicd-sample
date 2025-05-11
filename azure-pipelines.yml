@@ -6,9 +6,14 @@ trigger:
 
 variables:
   imageName: azdevops-cicd-sample
-  azureSubscription: AzureSubscriptionConnection
+  azureSubscription: AzureSubscriptionConnection   # Use the service‑connection NAME, not its GUID
   acrName: nithinkatruacr
   rgName: ci-cd-rg
+  location: eastus
+  appServicePlan: cicd-plan
+  webAppName: "cicd-webapp-$(Build.SourceBranchName)"
+  tfStateStorageAccount: tfstateYourSuffix
+  tfStateContainer: tfstate
   sonarOrg: akhil-mano52020
 
 stages:
@@ -25,6 +30,16 @@ stages:
           - checkout: self
             persistCredentials: true
 
+          # — Login to ACR using PowerShell on Windows —
+          - task: AzureCLI@2
+            displayName: 'Login to ACR'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              scriptType: ps
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(acrName)
+
           - task: NodeTool@0
             inputs:
               versionSpec: '14.x'
@@ -38,33 +53,24 @@ stages:
           - script: npm test
             displayName: 'Run tests'
 
-          # === REPLACE this old “Build Docker image” step
-          # - script: |
-          #     docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
-          #   displayName: 'Build Docker image'
-          # - task: Docker@2
-          #   displayName: 'Push image to ACR'
-          #   inputs:
-          #     command: push
-          #     repository: $(acrName).azurecr.io/$(imageName)
-          #     tags: $(Build.BuildId)
+          - script: |
+              docker build \
+                -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) \
+                .
+            displayName: 'Build Docker image'
 
-          # === WITH this Docker@2 “buildAndPush” step ===
           - task: Docker@2
-            displayName: 'Build & Push to ACR'
+            displayName: 'Push image to ACR'
             inputs:
-              containerRegistry: '$(azureSubscription)'      # your ACR connection
-              command: buildAndPush
+              command: push
               repository: $(acrName).azurecr.io/$(imageName)
-              dockerfile: '$(Build.SourcesDirectory)/Dockerfile'
-              context: '$(Build.SourcesDirectory)'
-              tags: |
-                $(Build.BuildId)
+              tags: $(Build.BuildId)
 
+          # === SonarCloud analysis (v3 tasks) ===
           - task: SonarCloudPrepare@3
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'SonarCloud'
+              SonarCloud: 'SonarCloud'          # matches your service‑connection name
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'
@@ -108,8 +114,8 @@ stages:
                     workingDirectory: 'terraform'
                     backendServiceArm: '$(azureSubscription)'
                     backendAzureRmResourceGroupName: '$(rgName)'
-                    backendAzureRmStorageAccountName: '$(acrName)'
-                    backendAzureRmContainerName: '$(imageName)'
+                    backendAzureRmStorageAccountName: '$(tfStateStorageAccount)'
+                    backendAzureRmContainerName: '$(tfStateContainer)'
                     backendAzureRmKey: 'terraform.tfstate'
 
                 - task: TerraformTaskV1@0
@@ -126,5 +132,5 @@ stages:
                   inputs:
                     azureSubscription: '$(azureSubscription)'
                     resourceGroupName: '$(rgName)'
-                    appName: 'cicd-webapp-$(Build.SourceBranchName)'
+                    appName: '$(webAppName)'
                     imageName: '$(acrName).azurecr.io/$(imageName):$(Build.BuildId)'

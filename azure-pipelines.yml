@@ -88,7 +88,7 @@ stages:
         organization: $(sonarOrg)
         scannerMode: CLI
         configMode: manual
-        cliProjectKey: azdevops-cicd-sample
+        cliProjectKey: akhilmano1_azure-devops-cicd-sample-Public
         cliProjectName: CI-CD Sample
 
     - task: SonarCloudAnalyze@3

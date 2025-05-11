@@ -1,17 +1,25 @@
+# azure-pipelines.yml
 trigger:
   branches:
-    include: [ main, develop ]
+    include:
+      - main
+      - develop
 
+# ---------------------------------------------------------------------------#
+#  Global variables                                                          #
+# ---------------------------------------------------------------------------#
 variables:
   imageName: azdevops-cicd-sample
-  azureSubscription: AzureSubscriptionConnection
-  acrName: nithinkatruacr
-  rgName: ci-cd-rg
-  tfStateStorageAccount: tfstateYourSuffix
-  tfStateContainer: tfstate
-  sonarOrg: akhil-mano52020
+  azureSubscription: AzureSubscriptionConnection      # ARM service connection
+  acrName: nithinkatruacr                             # Azure Container Registry
+  rgName: ci-cd-rg                                    # Resource group for WebApp
+  tfStateStorageAccount: tfstateYourSuffix            # Remote state storage
+  tfStateContainer: tfstate                           # Remote state container
+  sonarOrg: akhil-mano52020                           # SonarCloud organisation
 
-# ───────────────────────────  BUILD / TEST / PUSH  ───────────────────────────
+# ---------------------------------------------------------------------------#
+#  CI  ─ Build / Test / Lint / Sonar / Push image                            #
+# ---------------------------------------------------------------------------#
 stages:
 - stage: Build
   displayName: 'CI: Build, Test & Sonar'
@@ -19,12 +27,22 @@ stages:
   - job: Build
     displayName: 'Self-Hosted Windows Build'
     pool:
-      name: LocalSelfHostedPool1
-      demands: [ agent.os -equals Windows_NT ]
+      name: LocalSelfHostedPool1                     # your Windows agent pool
+      demands:
+        - agent.os -equals Windows_NT
+
     steps:
     - checkout: self
       persistCredentials: true
 
+    # --- Verify Java is available (preinstalled on the agent) --------------
+    - script: |
+        echo "JAVA_HOME  = %JAVA_HOME%"
+        echo "java -version output:"
+        java -version
+      displayName: 'Verify Java installation'
+
+    # --- Log in to ACR ------------------------------------------------------
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
@@ -34,11 +52,13 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
+    # --- Node / NPM ---------------------------------------------------------
     - task: NodeTool@0
-      displayName: 'Use Node.js 14'
-      inputs: { versionSpec: '14.x' }
+      displayName: 'Use Node.js 20'
+      inputs:
+        versionSpec: '20.x'
 
-    - script: npm install
+    - script: npm ci
       displayName: 'Install dependencies'
       workingDirectory: $(Build.SourcesDirectory)
 
@@ -50,6 +70,7 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
+    # --- Build & push Docker image -----------------------------------------
     - task: PowerShell@2
       displayName: 'Build & push Docker image'
       inputs:
@@ -59,20 +80,11 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
-    # ── install / activate Temurin 17 so sonar-scanner can find Java ──
-    - task: JavaToolInstaller@0
-      displayName: 'Install Temurin 17'
-      inputs:
-        versionSpec: '17'
-        jdkArchitectureOption: x64
-        jdkSourceOption: AzureStorage          # built-in Microsoft mirror
-        jdkDestinationDirectory: $(Agent.TempDirectory)\jdk17
-
-    # ── SonarCloud analysis ──
+    # --- SonarCloud analysis ------------------------------------------------
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
-        SonarCloud: SonarCloud
+        SonarCloud: SonarCloud                       # service connection
         organization: $(sonarOrg)
         scannerMode: CLI
         configMode: manual
@@ -85,27 +97,34 @@ stages:
     - task: SonarCloudPublish@3
       displayName: 'Publish SonarCloud Quality Gate'
 
+    # --- Publish build artifacts -------------------------------------------
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
-# ───────────────────────────────  DEPLOY  ────────────────────────────────────
+# ---------------------------------------------------------------------------#
+#  CD  ─ Terraform & WebApp deploy                                           #
+# ---------------------------------------------------------------------------#
 - stage: Deploy
   displayName: 'CD: Terraform + WebApp Deploy'
   dependsOn: Build
   jobs:
   - deployment: Deploy
     displayName: 'Terraform + WebApp'
-    environment: $(Build.SourceBranchName)
-    pool: { vmImage: ubuntu-latest }
+    environment: $(Build.SourceBranchName)            # dev / prod slot names
+    pool:
+      vmImage: ubuntu-latest                          # MS-hosted Linux agent
+
     strategy:
       runOnce:
         deploy:
           steps:
           - checkout: self
 
+          # Terraform CLI
           - task: TerraformInstaller@0
             displayName: 'Install Terraform'
-            inputs: { terraformVersion: 1.0.0 }
+            inputs:
+              terraformVersion: 1.0.0
 
           - task: TerraformTaskV1@0
             displayName: 'Terraform Init'
@@ -128,6 +147,7 @@ stages:
               workingDirectory: terraform
               args: -auto-approve -var "environment=$(Build.SourceBranchName)"
 
+          # Deploy container to Web App
           - task: AzureWebAppContainer@1
             displayName: 'Deploy to Azure Web App'
             inputs:

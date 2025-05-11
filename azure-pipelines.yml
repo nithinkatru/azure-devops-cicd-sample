@@ -14,7 +14,7 @@ variables:
   webAppName: "cicd-webapp-$(Build.SourceBranchName)"
   tfStateStorageAccount: tfstateYourSuffix
   tfStateContainer: tfstate
-  sonarOrg:  akhil-mano52020
+  sonarOrg: akhil-mano52020
 
 stages:
   - stage: Build
@@ -54,11 +54,11 @@ stages:
               repository: $(acrName).azurecr.io/$(imageName)
               tags: $(Build.BuildId)
 
-          # === SonarCloud analysis (upgraded to version 2) ===
+          # === SonarCloud analysis ===
           - task: SonarCloudPrepare@2
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'azure-pipelines-token'             # your service connection
+              SonarCloud: 'SonarCloud'            # matches your service-connection name
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'
@@ -100,7 +100,7 @@ stages:
                     provider: 'azurerm'
                     command: 'init'
                     workingDirectory: 'terraform'
-                    backendServiceArm: '$(azureSubscription)'
+                    backendServiceArm: '$(azureSubscription)'          # your ARM connection
                     backendAzureRmResourceGroupName: '$(rgName)'
                     backendAzureRmStorageAccountName: '$(tfStateStorageAccount)'
                     backendAzureRmContainerName: '$(tfStateContainer)'

@@ -6,8 +6,7 @@ trigger:
 
 variables:
   imageName: azdevops-cicd-sample
-  # <-- use the service‑connection NAME, not its GUID
-  azureSubscription: AzureSubscriptionConnection
+  azureSubscription: AzureSubscriptionConnection   # Use the service‑connection NAME, not its GUID
   acrName: nithinkatruacr
   rgName: ci-cd-rg
   location: eastus
@@ -31,12 +30,12 @@ stages:
           - checkout: self
             persistCredentials: true
 
-          # Log in to ACR
+          # — Login to ACR using PowerShell on Windows —
           - task: AzureCLI@2
             displayName: 'Login to ACR'
             inputs:
               azureSubscription: '$(azureSubscription)'
-              scriptType: bash
+              scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
                 az acr login --name $(acrName)
@@ -67,11 +66,11 @@ stages:
               repository: $(acrName).azurecr.io/$(imageName)
               tags: $(Build.BuildId)
 
-          # SonarCloud (v3 tasks)
+          # === SonarCloud analysis (v3 tasks) ===
           - task: SonarCloudPrepare@3
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'SonarCloud'
+              SonarCloud: 'SonarCloud'          # matches your service‑connection name
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'

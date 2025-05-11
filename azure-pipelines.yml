@@ -1,8 +1,6 @@
 trigger:
   branches:
-    include:
-      - main
-      - develop
+    include: [ main, develop ]
 
 variables:
   imageName: azdevops-cicd-sample
@@ -22,8 +20,7 @@ stages:
     displayName: 'Self-Hosted Windows Build'
     pool:
       name: LocalSelfHostedPool1
-      demands:
-        - agent.os -equals Windows_NT
+      demands: [ agent.os -equals Windows_NT ]
     steps:
     - checkout: self
       persistCredentials: true
@@ -39,8 +36,7 @@ stages:
 
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
-      inputs:
-        versionSpec: '14.x'
+      inputs: { versionSpec: '14.x' }
 
     - script: npm install
       displayName: 'Install dependencies'
@@ -63,6 +59,16 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
+    # ── install / activate Temurin 17 so sonar-scanner can find Java ──
+    - task: JavaToolInstaller@0
+      displayName: 'Install Temurin 17'
+      inputs:
+        versionSpec: '17'
+        jdkArchitectureOption: x64
+        jdkSourceOption: AzureStorage          # built-in Microsoft mirror
+        jdkDestinationDirectory: $(Agent.TempDirectory)\jdk17
+
+    # ── SonarCloud analysis ──
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -90,18 +96,16 @@ stages:
   - deployment: Deploy
     displayName: 'Terraform + WebApp'
     environment: $(Build.SourceBranchName)
-    pool:
-      vmImage: ubuntu-latest
+    pool: { vmImage: ubuntu-latest }
     strategy:
       runOnce:
         deploy:
-          steps:                 # ←── added this mapping key
+          steps:
           - checkout: self
 
           - task: TerraformInstaller@0
             displayName: 'Install Terraform'
-            inputs:
-              terraformVersion: 1.0.0
+            inputs: { terraformVersion: 1.0.0 }
 
           - task: TerraformTaskV1@0
             displayName: 'Terraform Init'

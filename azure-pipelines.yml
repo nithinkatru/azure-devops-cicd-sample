@@ -9,7 +9,7 @@ variables:
   azureSubscription: AzureSubscriptionConnection
   acrName: nithinkatruacr
   rgName: ci-cd-rg
-  tfStateStorageAccount: tfstateYourSuffix
+  tfStateStorageAccount: tfstateYourSuffix      # update to real SA
   tfStateContainer: tfstate
   sonarOrg: akhil-mano52020
 
@@ -28,6 +28,7 @@ stages:
     - checkout: self
       persistCredentials: true
 
+    # 1 — log in to ACR
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
@@ -37,6 +38,7 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
+    # 2 — Node install / lint / test
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
       inputs:
@@ -54,6 +56,7 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
+    # 3 — build & push Docker image
     - task: PowerShell@2
       displayName: 'Build & push Docker image'
       inputs:
@@ -63,6 +66,14 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
+    # 3½ — ensure Java 17 for Sonar scanner
+    - task: UseJava@1
+      displayName: 'Use Temurin 17'
+      inputs:
+        versionSpec: '17'
+        architecture: 'x64'
+
+    # 4 — SonarCloud analysis
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -95,7 +106,7 @@ stages:
     strategy:
       runOnce:
         deploy:
-          steps:                 # ←── added this mapping key
+          steps:
           - checkout: self
 
           - task: TerraformInstaller@0

@@ -5,37 +5,42 @@ trigger:
       - develop
 
 variables:
-  imageName: azdevops-cicd-sample
+  imageName: azdevops-cicd-sample           # repository name inside ACR
   azureSubscription: AzureSubscriptionConnection
-  acrName: nithinkatruacr
+  acrName: nithinkatruacr                   # <registry>.azurecr.io (loginServer)
   rgName: ci-cd-rg
+  tfStateStorageAccount: tfstateYourSuffix  # change to the actual SA name
+  tfStateContainer: tfstate
   sonarOrg: akhil-mano52020
 
 stages:
+
+# ──────────────────────────────  BUILD / TEST / PUSH  ──────────────────────────
 - stage: Build
   displayName: 'CI: Build, Test & Sonar'
   jobs:
   - job: Build
-    displayName: 'Self-Hosted Build'
+    displayName: 'Self-Hosted Windows Build'
     pool:
       name: LocalSelfHostedPool1
-      demands:
+      demands: 
         - agent.os -equals Windows_NT
     steps:
+    # checkout repo
     - checkout: self
       persistCredentials: true
 
-    # Log in to ACR
+    # login to ACR so docker can push later
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
-        azureSubscription: '$(azureSubscription)'
+        azureSubscription: $(azureSubscription)
         scriptType: ps
         scriptLocation: inlineScript
         inlineScript: |
           az acr login --name $(acrName)
 
-    # Node install / lint / test
+    # Node 14 + install / lint / test
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
       inputs:
@@ -53,28 +58,26 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
-    # Build image from repo root
-    - script: |
-        docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
-      displayName: 'Build Docker image'
-      workingDirectory: $(Build.SourcesDirectory)
+    # build & push image (PowerShell—safe on Windows agents)
+    - task: PowerShell@2
+      displayName: 'Build & Push Docker image'
+      inputs:
+        targetType: inline
+        script: |
+          docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
+          docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
+        workingDirectory: $(Build.SourcesDirectory)
 
-    # Push image (uses the ACR login above)
-    - script: |
-        docker push $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
-      displayName: 'Push image to ACR'
-      workingDirectory: $(Build.SourcesDirectory)
-
-    # SonarCloud v3
+    # SonarCloud analysis (v3 tasks)
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
-        SonarCloud: 'SonarCloud'
-        organization: '$(sonarOrg)'
-        scannerMode: 'CLI'
-        configMode: 'manual'
-        cliProjectKey: 'azdevops-cicd-sample'
-        cliProjectName: 'CI-CD Sample'
+        SonarCloud: SonarCloud
+        organization: $(sonarOrg)
+        scannerMode: CLI
+        configMode: manual
+        cliProjectKey: azdevops-cicd-sample
+        cliProjectName: CI-CD Sample
 
     - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud analysis'
@@ -82,53 +85,57 @@ stages:
     - task: SonarCloudPublish@3
       displayName: 'Publish SonarCloud Quality Gate'
 
+    # publish any build artefacts if you need them
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
+# ────────────────────────────────  DEPLOY  ────────────────────────────────────
 - stage: Deploy
   displayName: 'CD: Terraform + WebApp Deploy'
   dependsOn: Build
   jobs:
   - deployment: Deploy
-    displayName: 'Terraform + WebApp Deploy'
-    environment: '$(Build.SourceBranchName)'
+    displayName: 'Terraform + WebApp'
+    environment: $(Build.SourceBranchName)
     pool:
-      vmImage: 'ubuntu-latest'
+      vmImage: ubuntu-latest
     strategy:
       runOnce:
         deploy:
         - checkout: self
 
+        # Terraform
         - task: TerraformInstaller@0
           displayName: 'Install Terraform'
           inputs:
-            terraformVersion: '1.0.0'
+            terraformVersion: 1.0.0
 
         - task: TerraformTaskV1@0
           displayName: 'Terraform Init'
           inputs:
-            provider: 'azurerm'
-            command: 'init'
-            workingDirectory: 'terraform'
-            backendServiceArm: '$(azureSubscription)'
-            backendAzureRmResourceGroupName: '$(rgName)'
-            backendAzureRmStorageAccountName: '$(tfStateStorageAccount)'
-            backendAzureRmContainerName: '$(tfStateContainer)'
-            backendAzureRmKey: 'terraform.tfstate'
+            provider: azurerm
+            command: init
+            workingDirectory: terraform
+            backendServiceArm: $(azureSubscription)
+            backendAzureRmResourceGroupName: $(rgName)
+            backendAzureRmStorageAccountName: $(tfStateStorageAccount)
+            backendAzureRmContainerName: $(tfStateContainer)
+            backendAzureRmKey: terraform.tfstate
 
         - task: TerraformTaskV1@0
           displayName: 'Terraform Apply'
           inputs:
-            provider: 'azurerm'
-            command: 'apply'
-            environmentServiceName: '$(azureSubscription)'
-            workingDirectory: 'terraform'
-            args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
+            provider: azurerm
+            command: apply
+            environmentServiceName: $(azureSubscription)
+            workingDirectory: terraform
+            args: -auto-approve -var "environment=$(Build.SourceBranchName)"
 
+        # Deploy image to Web App for Containers
         - task: AzureWebAppContainer@1
           displayName: 'Deploy to Azure Web App'
           inputs:
-            azureSubscription: '$(azureSubscription)'
-            resourceGroupName: '$(rgName)'
-            appName: '$(webAppName)'
-            imageName: '$(acrName).azurecr.io/$(imageName):$(Build.BuildId)'
+            azureSubscription: $(azureSubscription)
+            resourceGroupName: $(rgName)
+            appName: cicd-webapp-$(Build.SourceBranchName)
+            imageName: $(acrName).azurecr.io/$(imageName):$(Build.BuildId)

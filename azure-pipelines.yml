@@ -15,7 +15,7 @@ stages:
   displayName: CI: Build, Test & Docker
   jobs:
   - job: Build
-    displayName: Self‑Hosted Build
+    displayName: Self-Hosted Build
     pool:
       name: LocalSelfHostedPool1
       demands:
@@ -24,18 +24,15 @@ stages:
     - checkout: self
       persistCredentials: true
 
-    # 1) Login to ACR in the repo folder
     - task: AzureCLI@2
       displayName: Login to ACR
       inputs:
-        azureSubscription: '$(azureSubscription)'
+        azureSubscription: $(azureSubscription)
         scriptType: ps
         scriptLocation: inlineScript
         inlineScript: |
           az acr login --name $(acrName)
-      workingDirectory: $(Build.SourcesDirectory)
 
-    # 2) Node / test
     - task: NodeTool@0
       displayName: Use Node.js 14
       inputs:
@@ -43,36 +40,26 @@ stages:
 
     - script: npm install
       displayName: Install dependencies
-      workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm run lint
       displayName: Lint code
-      workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm test
       displayName: Run tests
-      workingDirectory: $(Build.SourcesDirectory)
 
-    # 3) Build + push docker with correct context
     - script: |
-        docker build \
-          -f $(Build.SourcesDirectory)/Dockerfile \
-          -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) \
-          $(Build.SourcesDirectory)
+        docker build -f Dockerfile -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
       displayName: Build Docker image
-      workingDirectory: $(Build.SourcesDirectory)
 
     - script: |
         docker push $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
       displayName: Push image to ACR
-      workingDirectory: $(Build.SourcesDirectory)
 
-    # 4) SonarCloud analysis (v3)
     - task: SonarCloudPrepare@3
       displayName: Prepare SonarCloud analysis
       inputs:
-        SonarCloud: 'SonarCloud'
-        organization: '$(sonarOrg)'
+        SonarCloud: SonarCloud
+        organization: $(sonarOrg)
         scannerMode: CLI
         configMode: manual
         cliProjectKey: azdevops-cicd-sample
@@ -93,7 +80,7 @@ stages:
   jobs:
   - deployment: Deploy
     displayName: Terraform + WebApp Deploy
-    environment: '$(Build.SourceBranchName)'
+    environment: $(Build.SourceBranchName)
     pool:
       vmImage: ubuntu-latest
     strategy:
@@ -113,10 +100,10 @@ stages:
               provider: azurerm
               command: init
               workingDirectory: terraform
-              backendServiceArm: '$(azureSubscription)'
-              backendAzureRmResourceGroupName: '$(rgName)'
-              backendAzureRmStorageAccountName: '$(acrName)'
-              backendAzureRmContainerName: '$(imageName)'
+              backendServiceArm: $(azureSubscription)
+              backendAzureRmResourceGroupName: ci-cd-rg
+              backendAzureRmStorageAccountName: nithinkatruacr
+              backendAzureRmContainerName: azdevops-cicd-sample
               backendAzureRmKey: terraform.tfstate
 
           - task: TerraformTaskV1@0
@@ -124,14 +111,14 @@ stages:
             inputs:
               provider: azurerm
               command: apply
-              environmentServiceName: '$(azureSubscription)'
+              environmentServiceName: $(azureSubscription)
               workingDirectory: terraform
-              args: '-auto-approve -var "environment=$(Build.SourceBranchName)"'
+              args: -auto-approve -var environment=$(Build.SourceBranchName)
 
           - task: AzureWebAppContainer@1
             displayName: Deploy to Azure Web App
             inputs:
-              azureSubscription: '$(azureSubscription)'
-              resourceGroupName: '$(rgName)'
-              appName: 'cicd-webapp-$(Build.SourceBranchName)'
-              imageName: '$(acrName).azurecr.io/$(imageName):$(Build.BuildId)'
+              azureSubscription: $(azureSubscription)
+              resourceGroupName: ci-cd-rg
+              appName: cicd-webapp-$(Build.SourceBranchName)
+              imageName: $(acrName).azurecr.io/$(imageName):$(Build.BuildId)

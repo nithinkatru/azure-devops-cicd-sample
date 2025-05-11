@@ -4,11 +4,10 @@ trigger:
       - main
       - develop
 
-# NOTE: Your self-hosted Windows agent is running at ~96% memory use.
-# You may need to bump its RAM or switch the Sonar steps onto ubuntu-latest.
+
 variables:
   imageName: azdevops-cicd-sample
-  azureSubscription: AzureSubscriptionConnection
+  azureSubscription: 065cdc71-cbc8-4c74-9214-17d87ae5ada1
   acrName: nithinkatruacr
   rgName: ci-cd-rg
   location: eastus
@@ -20,12 +19,10 @@ variables:
 
 stages:
   - stage: Build
-    displayName: 'CI: Build and Test'
+    displayName: 'CI: Build, Test & Sonar'
     jobs:
       - job: Build
         displayName: 'Self‑Hosted Build'
-        # If memory is an issue, you can switch this job to:
-        # pool: { vmImage: 'windows-latest' }
         pool:
           name: LocalSelfHostedPool1
           demands:
@@ -33,6 +30,16 @@ stages:
         steps:
           - checkout: self
             persistCredentials: true
+
+          # — log in to ACR so docker push is authorized —
+          - task: AzureCLI@2
+            displayName: 'Login to ACR'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az acr login --name $(acrName)
 
           - task: NodeTool@0
             inputs:
@@ -48,7 +55,9 @@ stages:
             displayName: 'Run tests'
 
           - script: |
-              docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
+              docker build \
+                -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) \
+                .
             displayName: 'Build Docker image'
 
           - task: Docker@2
@@ -58,11 +67,11 @@ stages:
               repository: $(acrName).azurecr.io/$(imageName)
               tags: $(Build.BuildId)
 
-          # === SonarCloud analysis (upgrade to v3 tasks) ===
+          # === SonarCloud analysis (v3 tasks) ===
           - task: SonarCloudPrepare@3
             displayName: 'Prepare SonarCloud analysis'
             inputs:
-              SonarCloud: 'SonarCloud'               # your service-connection name
+              SonarCloud: 'SonarCloud'
               organization: '$(sonarOrg)'
               scannerMode: 'CLI'
               configMode: 'manual'
@@ -79,7 +88,7 @@ stages:
             artifact: drop
 
   - stage: Deploy
-    displayName: 'CD: Terraform and Deploy'
+    displayName: 'CD: Terraform + WebApp Deploy'
     dependsOn: Build
     jobs:
       - deployment: Deploy

@@ -1,6 +1,8 @@
 trigger:
   branches:
-    include: [ main, develop ]
+    include:
+      - main
+      - develop
 
 variables:
   imageName: azdevops-cicd-sample
@@ -11,6 +13,7 @@ variables:
   tfStateContainer: tfstate
   sonarOrg: akhil-mano52020
 
+# ───────────────────────────  BUILD / TEST / PUSH  ───────────────────────────
 stages:
 - stage: Build
   displayName: 'CI: Build, Test & Sonar'
@@ -19,7 +22,8 @@ stages:
     displayName: 'Self-Hosted Windows Build'
     pool:
       name: LocalSelfHostedPool1
-      demands: [ agent.os -equals Windows_NT ]
+      demands:
+        - agent.os -equals Windows_NT
     steps:
     - checkout: self
       persistCredentials: true
@@ -35,10 +39,15 @@ stages:
 
     - task: NodeTool@0
       displayName: 'Use Node.js 14'
-      inputs: { versionSpec: '14.x' }
+      inputs:
+        versionSpec: '14.x'
 
-    - script: npm ci
+    - script: npm install
       displayName: 'Install dependencies'
+      workingDirectory: $(Build.SourcesDirectory)
+
+    - script: npm run lint
+      displayName: 'Lint code'
       workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm test
@@ -54,15 +63,6 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
-    # ── install / select Temurin 17 for Sonar scanner ──
-    - task: JavaToolInstaller@0
-      displayName: 'Install Temurin 17'
-      inputs:
-        versionSpec: '17'
-        jdkArchitectureOption: x64
-        jdkSourceOption: PreInstalled
-
-    # SonarCloud v3
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
@@ -82,22 +82,26 @@ stages:
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
-- stage: Deploy                      # unchanged
+# ───────────────────────────────  DEPLOY  ────────────────────────────────────
+- stage: Deploy
   displayName: 'CD: Terraform + WebApp Deploy'
   dependsOn: Build
   jobs:
   - deployment: Deploy
     displayName: 'Terraform + WebApp'
     environment: $(Build.SourceBranchName)
-    pool: { vmImage: ubuntu-latest }
+    pool:
+      vmImage: ubuntu-latest
     strategy:
       runOnce:
         deploy:
-          steps:
+          steps:                 # ←── added this mapping key
           - checkout: self
+
           - task: TerraformInstaller@0
             displayName: 'Install Terraform'
-            inputs: { terraformVersion: 1.0.0 }
+            inputs:
+              terraformVersion: 1.0.0
 
           - task: TerraformTaskV1@0
             displayName: 'Terraform Init'

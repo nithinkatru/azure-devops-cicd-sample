@@ -5,21 +5,17 @@ trigger:
       - main
       - develop
 
-# ---------------------------------------------------------------------------#
-#  Global variables                                                          #
-# ---------------------------------------------------------------------------#
+# ──────────────────────────  Global variables  ────────────────────────────
 variables:
-  imageName: azdevops-cicd-sample
-  azureSubscription: AzureSubscriptionConnection      # ARM service connection
-  acrName: nithinkatruacr                             # Azure Container Registry
-  rgName: ci-cd-rg                                    # Resource group for WebApp
-  tfStateStorageAccount: tfstateYourSuffix            # Remote state storage
-  tfStateContainer: tfstate                           # Remote state container
-  sonarOrg: akhilmano1                         # SonarCloud organisation
+  imageName: azdevops-cicd-sample                # Docker tag base
+  azureSubscription: AzureSubscriptionConnection # ARM service connection
+  acrName: nithinkatruacr                        # Azure Container Registry
+  rgName: ci-cd-rg                               # Resource group for Web App
+  tfStateStorageAccount: tfstateYourSuffix       # Remote state storage
+  tfStateContainer: tfstate                      # Remote state container
+  sonarOrg: akhilmano1                           # SonarCloud organization
 
-# ---------------------------------------------------------------------------#
-#  CI  ─ Build / Test / Lint / Sonar / Push image                            #
-# ---------------------------------------------------------------------------#
+# ────────────────────────  Stage: Build / Test / Scan  ─────────────────────
 stages:
 - stage: Build
   displayName: 'CI: Build, Test & Sonar'
@@ -27,22 +23,22 @@ stages:
   - job: Build
     displayName: 'Self-Hosted Windows Build'
     pool:
-      name: LocalSelfHostedPool1                     # your Windows agent pool
+      name: LocalSelfHostedPool1
       demands:
         - agent.os -equals Windows_NT
 
     steps:
+    # Checkout repo
     - checkout: self
       persistCredentials: true
 
-    # --- Verify Java is available (preinstalled on the agent) --------------
+    # Verify Java (pre-installed on agent)
     - script: |
-        echo "JAVA_HOME  = %JAVA_HOME%"
-        echo "java -version output:"
+        echo "JAVA_HOME = %JAVA_HOME%"
         java -version
       displayName: 'Verify Java installation'
 
-    # --- Log in to ACR ------------------------------------------------------
+    # Log in to ACR
     - task: AzureCLI@2
       displayName: 'Login to ACR'
       inputs:
@@ -52,7 +48,7 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
-    # --- Node / NPM ---------------------------------------------------------
+    # Node / NPM
     - task: NodeTool@0
       displayName: 'Use Node.js 20'
       inputs:
@@ -70,7 +66,7 @@ stages:
       displayName: 'Run tests'
       workingDirectory: $(Build.SourcesDirectory)
 
-    # --- Build & push Docker image -----------------------------------------
+    # Build & push Docker image
     - task: PowerShell@2
       displayName: 'Build & push Docker image'
       inputs:
@@ -80,16 +76,19 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
           docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
-    # --- SonarCloud analysis ------------------------------------------------
+    # SonarCloud analysis
     - task: SonarCloudPrepare@3
       displayName: 'Prepare SonarCloud analysis'
       inputs:
-        SonarCloud: SonarCloud                       # service connection
+        SonarCloud: SonarCloud
         organization: $(sonarOrg)
         scannerMode: CLI
         configMode: manual
         cliProjectKey: akhilmano1_azure-devops-cicd-sample-Public
         cliProjectName: CI-CD Sample
+        # Uncomment below when you want branch analyses to show separately
+        # extraProperties: |
+        #   sonar.branch.name=$(Build.SourceBranchName)
 
     - task: SonarCloudAnalyze@3
       displayName: 'Run SonarCloud analysis'
@@ -97,22 +96,25 @@ stages:
     - task: SonarCloudPublish@3
       displayName: 'Publish SonarCloud Quality Gate'
 
-    # --- Publish build artifacts -------------------------------------------
+    # Publish build artifacts (if needed by later stages)
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
-# ---------------------------------------------------------------------------#
-#  CD  ─ Terraform & WebApp deploy                                           #
-# ---------------------------------------------------------------------------#
+# ─────────────────────────  Stage: Deploy (self-hosted)  ───────────────────
 - stage: Deploy
   displayName: 'CD: Terraform + WebApp Deploy'
   dependsOn: Build
+
   jobs:
   - deployment: Deploy
     displayName: 'Terraform + WebApp'
-    environment: $(Build.SourceBranchName)            # dev / prod slot names
+    environment: $(Build.SourceBranchName)        # Dev/prod slot name
+
+    # ▶ Use the same self-hosted pool (no hosted parallelism required)
     pool:
-      vmImage: ubuntu-latest                          # MS-hosted Linux agent
+      name: LocalSelfHostedPool1
+      demands:
+        - agent.os -equals Windows_NT
 
     strategy:
       runOnce:
@@ -120,12 +122,13 @@ stages:
           steps:
           - checkout: self
 
-          # Terraform CLI
+          # Install Terraform (works fine on Windows)
           - task: TerraformInstaller@0
             displayName: 'Install Terraform'
             inputs:
               terraformVersion: 1.0.0
 
+          # Terraform init
           - task: TerraformTaskV1@0
             displayName: 'Terraform Init'
             inputs:
@@ -138,6 +141,7 @@ stages:
               backendAzureRmContainerName: $(tfStateContainer)
               backendAzureRmKey: terraform.tfstate
 
+          # Terraform apply
           - task: TerraformTaskV1@0
             displayName: 'Terraform Apply'
             inputs:

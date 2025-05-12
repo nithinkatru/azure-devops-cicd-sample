@@ -147,7 +147,7 @@ stages:
             inputs:
               provider: azurerm
               command: apply
-              environmentServiceName: $(azureSubscription)
+              environmentServiceNameAzureRM: $(azureSubscription)
               workingDirectory: terraform
               args: -auto-approve -var "environment=$(Build.SourceBranchName)"
 

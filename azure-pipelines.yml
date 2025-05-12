@@ -15,7 +15,7 @@ variables:
   rgName: ci-cd-rg                                    # Resource group for WebApp
   tfStateStorageAccount: tfstateYourSuffix            # Remote state storage
   tfStateContainer: tfstate                           # Remote state container
-  sonarOrg: akhil-mano52020                           # SonarCloud organisation
+  sonarOrg: akhilmano1                         # SonarCloud organisation
 
 # ---------------------------------------------------------------------------#
 #  CI  ─ Build / Test / Lint / Sonar / Push image                            #

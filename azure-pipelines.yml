@@ -88,7 +88,7 @@ stages:
           steps:
           - checkout: self
 
-                    # 1️⃣ Ensure App Service Plan + Web App exist
+                          # 1️⃣ Ensure App Service Plan + Web App exist
           - task: AzureCLI@2
             displayName: "Create plan & webapp if absent"
             inputs:
@@ -96,15 +96,14 @@ stages:
               scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
-                $ErrorActionPreference = 'Continue'   # let us test $LASTEXITCODE
                 $rg        = "$(rgName)"
                 $planName  = "$(servicePlanName)"
                 $appName   = "$(appServicePrefix)-$(Build.SourceBranchName)"
-                $location  = "$(location)"           # eastus
+                $location  = "$(location)"    # eastus
 
                 Write-Host "🔎 Checking App Service Plan '$planName'..."
-                az appservice plan show -g $rg -n $planName -o none 2>$null
-                if ($LASTEXITCODE -ne 0) {
+                $plan = az appservice plan show -g $rg -n $planName --query name -o tsv 2>$null
+                if (-not $plan) {
                   Write-Host "➕ Creating App Service Plan '$planName'"
                   az appservice plan create `
                        --name $planName `
@@ -112,18 +111,29 @@ stages:
                        --sku B1 `
                        --is-linux `
                        --location $location
-                } else { Write-Host "✅ Plan exists." }
+                  # wait until ARM has fully provisioned the plan
+                  Write-Host "⏳ Waiting for plan to become available..."
+                  do {
+                    Start-Sleep -Seconds 5
+                    $plan = az appservice plan show -g $rg -n $planName --query name -o tsv 2>$null
+                  } until ($plan)
+                } else {
+                  Write-Host "✅ Plan exists."
+                }
 
                 Write-Host "🔎 Checking Web App '$appName'..."
-                az webapp show -g $rg -n $appName -o none 2>$null
-                if ($LASTEXITCODE -ne 0) {
+                $app = az webapp show -g $rg -n $appName --query name -o tsv 2>$null
+                if (-not $app) {
                   Write-Host "➕ Creating Web App '$appName'"
                   az webapp create `
                        --resource-group $rg `
                        --plan $planName `
                        --name $appName `
                        --deployment-container-image-name "mcr.microsoft.com/oss/nginx/nginx:latest"
-                } else { Write-Host "✅ Web App exists." }
+                  Write-Host "✅ Web App created."
+                } else {
+                  Write-Host "✅ Web App exists."
+                }
 
 
           # 2️⃣ Deploy the container image

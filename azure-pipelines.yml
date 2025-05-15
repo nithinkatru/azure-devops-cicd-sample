@@ -130,20 +130,32 @@ stages:
               backendAzureRmKey: terraform.tfstate
             env: { ARM_USE_AZUREAD: true }
 
-          # 4️⃣ Import RG (PowerShell) — only if it exists
-          - task: PowerShell@2
-            displayName: "Import RG if present"
-            condition: eq(variables.RG_EXISTS, 'true')
-            inputs:
-              targetType: inline
-              workingDirectory: terraform
-              script: |
-                Write-Host "Importing RG into state..."
-                terraform.exe import `
-                  azurerm_resource_group.rg `
-                  /subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName) `
-                  || Write-Host "RG already imported or import skipped."
-            env: { ARM_USE_AZUREAD: true }
+         # 4️⃣ Import RG (PowerShell) — only if it exists
+- task: PowerShell@2
+  displayName: "Import RG if present"
+  condition: eq(variables.RG_EXISTS, 'true')
+  inputs:
+    targetType: inline
+    workingDirectory: terraform
+    script: |
+      Write-Host "Importing RG into Terraform state..."
+      terraform.exe import `
+        azurerm_resource_group.rg `
+        "/subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName)"
+
+      if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅  RG imported successfully."
+      }
+      elseif ($LASTEXITCODE -eq 1) {
+        Write-Host "ℹ️  RG is already in state or import skipped."
+        exit 0   # treat this as success so pipeline continues
+      }
+      else {
+        Write-Host "❌  Unexpected import error (exit $LASTEXITCODE)"
+        exit $LASTEXITCODE
+      }
+  env:
+    ARM_USE_AZUREAD: true
 
           # 5️⃣ terraform apply
           - task: TerraformTaskV4@4

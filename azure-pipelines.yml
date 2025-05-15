@@ -5,7 +5,7 @@ trigger:
       - main
       - develop
 
-# ──────────────────────────  Global variables  ────────────────────────────
+# ────────────────────────── Global variables ──────────────────────────────
 variables:
   imageName: azdevops-cicd-sample                # Docker tag base
   azureSubscription: AzureSubscriptionConnection # ARM service connection
@@ -15,20 +15,19 @@ variables:
   tfStateContainer: tfstate                      # Remote state container
   sonarOrg: akhilmano1                           # SonarCloud organization
 
-# ────────────────────────  Stage: Build / Test / Scan  ─────────────────────
+# ────────────────────────── Stage: Build / Test / Scan ────────────────────
 stages:
 - stage: Build
-  displayName: 'CI: Build, Test & Sonar'
+  displayName: "CI: Build, Test & Sonar"
   jobs:
   - job: Build
-    displayName: 'Self-Hosted Windows Build'
+    displayName: "Self-Hosted Windows Build"
     pool:
       name: LocalSelfHostedPool1
       demands:
         - agent.os -equals Windows_NT
 
     steps:
-    # Checkout repo
     - checkout: self
       persistCredentials: true
 
@@ -36,11 +35,11 @@ stages:
     - script: |
         echo "JAVA_HOME = %JAVA_HOME%"
         java -version
-      displayName: 'Verify Java installation'
+      displayName: "Verify Java installation"
 
     # Log in to ACR
     - task: AzureCLI@2
-      displayName: 'Login to ACR'
+      displayName: "Login to ACR"
       inputs:
         azureSubscription: $(azureSubscription)
         scriptType: ps
@@ -50,35 +49,35 @@ stages:
 
     # Node / NPM
     - task: NodeTool@0
-      displayName: 'Use Node.js 20'
+      displayName: "Use Node.js 20"
       inputs:
-        versionSpec: '20.x'
+        versionSpec: "20.x"
 
     - script: npm ci
-      displayName: 'Install dependencies'
+      displayName: "Install dependencies"
       workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm run lint
-      displayName: 'Lint code'
+      displayName: "Lint code"
       workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm test
-      displayName: 'Run tests'
+      displayName: "Run tests"
       workingDirectory: $(Build.SourcesDirectory)
 
     # Build & push Docker image
     - task: PowerShell@2
-      displayName: 'Build & push Docker image'
+      displayName: "Build & push Docker image"
       inputs:
         targetType: inline
         workingDirectory: $(Build.SourcesDirectory)
         script: |
           docker build -t $(acrName).azurecr.io/$(imageName):$(Build.BuildId) .
-          docker push  $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
+          docker push $(acrName).azurecr.io/$(imageName):$(Build.BuildId)
 
     # SonarCloud analysis
     - task: SonarCloudPrepare@3
-      displayName: 'Prepare SonarCloud analysis'
+      displayName: "Prepare SonarCloud analysis"
       inputs:
         SonarCloud: SonarCloud
         organization: $(sonarOrg)
@@ -86,31 +85,27 @@ stages:
         configMode: manual
         cliProjectKey: akhilmano1_azure-devops-cicd-sample-Public
         cliProjectName: CI-CD Sample
-        # Uncomment below when you want branch analyses to show separately
-        # extraProperties: |
-        #   sonar.branch.name=$(Build.SourceBranchName)
 
     - task: SonarCloudAnalyze@3
-      displayName: 'Run SonarCloud analysis'
+      displayName: "Run SonarCloud analysis"
 
     - task: SonarCloudPublish@3
-      displayName: 'Publish SonarCloud Quality Gate'
+      displayName: "Publish SonarCloud Quality Gate"
 
     # Publish build artifacts (if needed by later stages)
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
-# ─────────────────────────  Stage: Deploy (self-hosted)  ───────────────────
+# ───────────────────────── Stage: Deploy (self-hosted) ────────────────────
 - stage: Deploy
-  displayName: 'CD: Terraform + WebApp Deploy'
+  displayName: "CD: Terraform + WebApp Deploy"
   dependsOn: Build
 
   jobs:
   - deployment: Deploy
-    displayName: 'Terraform + WebApp'
-    environment: $(Build.SourceBranchName)        # Dev/prod slot name
+    displayName: "Terraform + WebApp"
+    environment: $(Build.SourceBranchName)
 
-    # ▶ Use the same self-hosted pool (no hosted parallelism required)
     pool:
       name: LocalSelfHostedPool1
       demands:
@@ -122,15 +117,15 @@ stages:
           steps:
           - checkout: self
 
-          # Install Terraform (works fine on Windows)
+          # Install (modern) Terraform
           - task: TerraformInstaller@0
-            displayName: 'Install Terraform'
+            displayName: "Install Terraform"
             inputs:
-              terraformVersion: 1.0.0
+              terraformVersion: 1.7.x       # current stable, supports OIDC
 
-          # Terraform init
-          - task: TerraformTaskV4@4 
-            displayName: 'Terraform Init'
+          # ──────────────── Terraform Init (OIDC-aware) ────────────────
+          - task: TerraformTaskV4@4
+            displayName: "Terraform Init"
             inputs:
               provider: azurerm
               command: init
@@ -140,20 +135,28 @@ stages:
               backendAzureRmStorageAccountName: $(tfStateStorageAccount)
               backendAzureRmContainerName: $(tfStateContainer)
               backendAzureRmKey: terraform.tfstate
+            env:
+              ARM_USE_AZUREAD: true
 
-          # Terraform apply
+          # ─────────────── Terraform Apply (OIDC-aware) ────────────────
           - task: TerraformTaskV4@4
-            displayName: 'Terraform Apply'
+            displayName: "Terraform Apply"
             inputs:
               provider: azurerm
               command: apply
-              environmentServiceNameAzureRM: $(azureSubscription)
               workingDirectory: terraform
-              args: -auto-approve -var "environment=$(Build.SourceBranchName)"
+              environmentServiceNameAzureRM: $(azureSubscription)
+              commandOptions: |
+                -input=false
+                -auto-approve
+                -var "environment=$(Build.SourceBranchName)"
+                -var "acr_name=$(acrName)"
+            env:
+              ARM_USE_AZUREAD: true
 
-          # Deploy container to Web App
+          # ───────────── Deploy container to Azure Web App ─────────────
           - task: AzureWebAppContainer@1
-            displayName: 'Deploy to Azure Web App'
+            displayName: "Deploy to Azure Web App"
             inputs:
               azureSubscription: $(azureSubscription)
               resourceGroupName: $(rgName)

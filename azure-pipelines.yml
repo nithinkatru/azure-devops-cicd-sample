@@ -122,50 +122,50 @@ stages:
               backendAzureRmKey: terraform.tfstate
             env: { ARM_USE_AZUREAD: true }
 
-          # 4️⃣ Import RG (PowerShell) — only if it exists
-          - task: PowerShell@2
-            displayName: "Import RG if present"
-            condition: eq(variables.RG_EXISTS, 'true')
-            inputs:
-              targetType: inline
-              workingDirectory: terraform
-              script: |
-                Write-Host "Importing RG into Terraform state..."
-                terraform.exe import `
-                  azurerm_resource_group.rg `
-                  "/subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName)"
+          # # 4️⃣ Import RG (PowerShell) — only if it exists
+          # - task: PowerShell@2
+          #   displayName: "Import RG if present"
+          #   condition: eq(variables.RG_EXISTS, 'true')
+          #   inputs:
+          #     targetType: inline
+          #     workingDirectory: terraform
+          #     script: |
+          #       Write-Host "Importing RG into Terraform state..."
+          #       terraform.exe import `
+          #         azurerm_resource_group.rg `
+          #         "/subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName)"
 
-                if ($LASTEXITCODE -eq 0) {
-                  Write-Host "✅  RG imported successfully."
-                }
-                elseif ($LASTEXITCODE -eq 1) {
-                  Write-Host "ℹ️  RG is already in state or import skipped."
-                  exit 0   # treat this as success so pipeline continues
-                }
-                else {
-                  Write-Host "❌  Unexpected import error (exit $LASTEXITCODE)"
-                  exit $LASTEXITCODE
-                }
-            env: { ARM_USE_AZUREAD: true }
+          #       if ($LASTEXITCODE -eq 0) {
+          #         Write-Host "✅  RG imported successfully."
+          #       }
+          #       elseif ($LASTEXITCODE -eq 1) {
+          #         Write-Host "ℹ️  RG is already in state or import skipped."
+          #         exit 0   # treat this as success so pipeline continues
+          #       }
+          #       else {
+          #         Write-Host "❌  Unexpected import error (exit $LASTEXITCODE)"
+          #         exit $LASTEXITCODE
+          #       }
+          #   env: { ARM_USE_AZUREAD: true }
 
-          # 5️⃣ terraform apply
-          - task: TerraformTaskV4@4
-            displayName: "Terraform apply"
-            inputs:
-              provider: azurerm
-              command: apply
-              workingDirectory: terraform
-              environmentServiceNameAzureRM: $(azureSubscription)
-              commandOptions: >-
-                -input=false
-                -auto-approve
-                -var "resource_group_name=$(rgName)"
-                -var "service_plan_name=$(servicePlanName)"
-                -var "web_app_name=$(appServicePrefix)-$(Build.SourceBranchName)"
-                -var "image_name=$(imageName)"
-                -var "image_tag=$(imageTag)"
-                -var "acr_name=$(acrName)"
-            env: { ARM_USE_AZUREAD: true }
+          # # 5️⃣ terraform apply
+          # - task: TerraformTaskV4@4
+          #   displayName: "Terraform apply"
+          #   inputs:
+          #     provider: azurerm
+          #     command: apply
+          #     workingDirectory: terraform
+          #     environmentServiceNameAzureRM: $(azureSubscription)
+          #     commandOptions: >-
+          #       -input=false
+          #       -auto-approve
+          #       -var "resource_group_name=$(rgName)"
+          #       -var "service_plan_name=$(servicePlanName)"
+          #       -var "web_app_name=$(appServicePrefix)-$(Build.SourceBranchName)"
+          #       -var "image_name=$(imageName)"
+          #       -var "image_tag=$(imageTag)"
+          #       -var "acr_name=$(acrName)"
+          #   env: { ARM_USE_AZUREAD: true }
 
           # 6️⃣ Deploy the image to Web App
           - task: AzureWebAppContainer@1

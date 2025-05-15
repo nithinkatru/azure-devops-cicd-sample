@@ -88,7 +88,7 @@ stages:
           steps:
           - checkout: self
 
-          # 1️⃣ Ensure App Service Plan + Web App exist
+                    # 1️⃣ Ensure App Service Plan + Web App exist
           - task: AzureCLI@2
             displayName: "Create plan & webapp if absent"
             inputs:
@@ -96,16 +96,16 @@ stages:
               scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
-                $ErrorActionPreference = 'Stop'
-                $appName = "$(appServicePrefix)-$(Build.SourceBranchName)"
-                $planName = "$(servicePlanName)"
+                $ErrorActionPreference = 'Continue'   # let us test $LASTEXITCODE
                 $rg        = "$(rgName)"
-                $location  = "$(location)"
+                $planName  = "$(servicePlanName)"
+                $appName   = "$(appServicePrefix)-$(Build.SourceBranchName)"
+                $location  = "$(location)"           # eastus
 
                 Write-Host "🔎 Checking App Service Plan '$planName'..."
-                $plan = az appservice plan show -g $rg -n $planName -o none 2>$null
-                if (-not $?) {
-                  Write-Host "➕ Creating Plan $planName"
+                az appservice plan show -g $rg -n $planName -o none 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "➕ Creating App Service Plan '$planName'"
                   az appservice plan create `
                        --name $planName `
                        --resource-group $rg `
@@ -115,20 +115,16 @@ stages:
                 } else { Write-Host "✅ Plan exists." }
 
                 Write-Host "🔎 Checking Web App '$appName'..."
-                $app = az webapp show -g $rg -n $appName -o none 2>$null
-                if (-not $?) {
-                  Write-Host "➕ Creating Web App $appName"
+                az webapp show -g $rg -n $appName -o none 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                  Write-Host "➕ Creating Web App '$appName'"
                   az webapp create `
-                      --resource-group $rg `
-                      --plan $planName `
-                      --name $appName `
-                      --runtime "DOTNETCORE:6.0" `
-                      --deployment-container-image-name "mcr.microsoft.com/oss/nginx/nginx:latest"
+                       --resource-group $rg `
+                       --plan $planName `
+                       --name $appName `
+                       --deployment-container-image-name "mcr.microsoft.com/oss/nginx/nginx:latest"
                 } else { Write-Host "✅ Web App exists." }
 
-          # (Terraform steps remain commented until you re-enable them)
-          # - task: TerraformInstaller@0
-          # ... etc ...
 
           # 2️⃣ Deploy the container image
           - task: AzureWebAppContainer@1

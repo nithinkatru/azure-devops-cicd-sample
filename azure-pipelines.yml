@@ -5,23 +5,24 @@ trigger:
       - develop
 
 variables:
-  imageName:               azdevops-cicd-sample
-  imageTag:                $(Build.BuildId)
+  imageName:            azdevops-cicd-sample
+  imageTag:             $(Build.BuildId)
 
-  azureSubscription:       AzureSubscriptionConnection
+  azureSubscription:    AzureSubscriptionConnection
 
-  rgName:                  ci-cd-rg
-  acrName:                 nithinkatruacr
-  appServicePrefix:        cicd-webapp
-  servicePlanName:         cicd-asp
-  location:                eastus
+  rgName:               ci-cd-rg
+  acrName:              nithinkatruacr
+  appServicePrefix:     cicd-webapp
+  servicePlanName:      cicd-asp
+  location:             eastus
 
-  tfStateStorageAccount:   tfstateYourSuffix
-  tfStateContainer:        tfstate
+  tfStateStorageAccount: tfstateYourSuffix
+  tfStateContainer:      tfstate
 
-  sonarOrg:                akhilmano1
+  sonarOrg:             akhilmano1
 
 stages:
+
 # ─────────────────────────── Build ────────────────────────────
 - stage: Build
   displayName: "CI: Build, Test, Lint, Sonar"
@@ -87,6 +88,7 @@ stages:
     - task: SonarCloudPublish@3
       displayName: "Sonar – publish"
 
+
 # ─────────────────────────── Deploy ────────────────────────────
 - stage: Deploy
   displayName: "CD: Push container to existing App Service"
@@ -138,8 +140,7 @@ stages:
                     az appservice plan show -g $rg -n $planName -o none 2>$null
                   } while ($LASTEXITCODE -ne 0)
                   Write-Host "✅ Plan provisioned successfully."
-                }
-                else {
+                } else {
                   Write-Host "✅ Plan already exists."
                 }
 
@@ -153,8 +154,7 @@ stages:
                     --name $appName `
                     --deployment-container-image-name "mcr.microsoft.com/oss/nginx/nginx:latest"
                   Write-Host "✅ Web App created."
-                }
-                else {
+                } else {
                   Write-Host "✅ Web App already exists."
                 }
 

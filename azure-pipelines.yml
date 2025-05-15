@@ -117,11 +117,13 @@ stages:
           steps:
           - checkout: self
 
-          # Install (modern) Terraform
-          - task: TerraformInstaller@0
-            displayName: "Install Terraform"
-            inputs:
-              terraformVersion: 1.7.x       # current stable, supports OIDC
+          # ─ Install Terraform ─
+- task: TerraformInstaller@0
+  displayName: "Install Terraform"
+  inputs:
+    # pick any specific 1.7 release that exists in HashiCorp’s releases list
+    terraformVersion: 1.7.5   # ← was 1.7.x
+
 
           # ──────────────── Terraform Init (OIDC-aware) ────────────────
           - task: TerraformTaskV4@4

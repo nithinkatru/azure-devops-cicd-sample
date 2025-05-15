@@ -142,7 +142,7 @@ stages:
               backendAzureRmKey: terraform.tfstate
 
           # Terraform apply
-          - task: TerraformTaskV1@0
+          - task: TerraformTaskV4@4
             displayName: 'Terraform Apply'
             inputs:
               provider: azurerm

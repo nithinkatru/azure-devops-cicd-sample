@@ -6,20 +6,29 @@ trigger:
 
 # ────────────────────────── Global variables ──────────────────────────────
 variables:
-  # build-time / deploy-time parameters
-  imageName: azdevops-cicd-sample                # Docker tag base
-  imageTag: $(Build.BuildId)                     # Tag pushed to ACR
-  azureSubscription: AzureSubscriptionConnection # ARM service connection name
-  acrName: nithinkatruacr                        # Azure Container Registry
-  rgName: ci-cd-rg                               # Resource group for Web App
-  appServicePrefix: cicd-webapp                  # Base name for Web Apps
-  tfStateStorageAccount: tfstateYourSuffix       # Remote-state storage
-  tfStateContainer: tfstate
-  sonarOrg: akhilmano1                           # SonarCloud org key
+  # Container-build info
+  imageName: azdevops-cicd-sample
+  imageTag: $(Build.BuildId)
 
-# ────────────────────── Stage: Build / Test / Scan ────────────────────────
+  # Azure DevOps service-connection
+  azureSubscription: AzureSubscriptionConnection   # ARM service connection
+
+  # Azure resource names
+  acrName: nithinkatruacr          # Azure Container Registry
+  rgName: ci-cd-rg                 # Resource Group
+  appServicePrefix: cicd-webapp    # Base for Web-App name per branch
+  servicePlanName: cicd-asp        # <-- new: App Service Plan name
+
+  # Terraform remote-state
+  tfStateStorageAccount: tfstateYourSuffix
+  tfStateContainer: tfstate
+
+  # SonarCloud
+  sonarOrg: akhilmano1
+
+# ────────────────────────── Stage: Build ──────────────────────────────────
 stages:
-# ───────────────────────────────── Build ──────────────────────────────────
+# ---------------------------------------------------------------- Build --
 - stage: Build
   displayName: "CI: Build, Test & Sonar"
   jobs:
@@ -31,17 +40,14 @@ stages:
         - agent.os -equals Windows_NT
 
     steps:
-    # 1️⃣ Checkout code
     - checkout: self
       persistCredentials: true
 
-    # 2️⃣ Verify Java (if your build needs it)
     - script: |
         echo "JAVA_HOME=%JAVA_HOME%"
         java -version
       displayName: "Verify Java installation"
 
-    # 3️⃣ Log in to ACR
     - task: AzureCLI@2
       displayName: "Login to ACR"
       inputs:
@@ -51,13 +57,11 @@ stages:
         inlineScript: |
           az acr login --name $(acrName)
 
-    # 4️⃣ Set Node.js runtime
     - task: NodeTool@0
       displayName: "Use Node.js 20"
       inputs:
         versionSpec: "20.x"
 
-    # 5️⃣ Install, lint, test
     - script: npm ci
       displayName: "Install dependencies"
       workingDirectory: $(Build.SourcesDirectory)
@@ -70,7 +74,6 @@ stages:
       displayName: "Run tests"
       workingDirectory: $(Build.SourcesDirectory)
 
-    # 6️⃣ Build & push Docker image
     - task: PowerShell@2
       displayName: "Build & push Docker image"
       inputs:
@@ -80,7 +83,6 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(imageTag) .
           docker push $(acrName).azurecr.io/$(imageName):$(imageTag)
 
-    # 7️⃣ SonarCloud analysis
     - task: SonarCloudPrepare@3
       displayName: "Prepare SonarCloud analysis"
       inputs:
@@ -97,20 +99,19 @@ stages:
     - task: SonarCloudPublish@3
       displayName: "Publish SonarCloud Quality Gate"
 
-    # 8️⃣ Publish any build artifacts (optional)
     - publish: $(Build.ArtifactStagingDirectory)
       artifact: drop
 
 # ────────────────────────── Stage: Deploy ────────────────────────────────
+# --------------------------------------------------------------- Deploy --
 - stage: Deploy
   displayName: "CD: Terraform + WebApp Deploy"
   dependsOn: Build
 
   jobs:
-  # ────────────────────────── Deployment job ─────────────────────────────
   - deployment: Deploy
     displayName: "Terraform + WebApp"
-    environment: $(Build.SourceBranchName)         # maps to Dev / Prod environments
+    environment: $(Build.SourceBranchName)
     pool:
       name: LocalSelfHostedPool1
       demands:
@@ -120,16 +121,15 @@ stages:
       runOnce:
         deploy:
           steps:
-          # 1️⃣ Checkout IaC repo (same repo here)
           - checkout: self
 
-          # 2️⃣ Install Terraform CLI
+          # 1. Install Terraform
           - task: TerraformInstaller@0
             displayName: "Install Terraform"
             inputs:
-              terraformVersion: 1.7.5              # or 'latest'
+              terraformVersion: 1.7.5      # or 'latest'
 
-          # 3️⃣ Terraform Init (backed by Azure Storage, using OIDC)
+          # 2. terraform init
           - task: TerraformTaskV4@4
             displayName: "Terraform Init"
             inputs:
@@ -144,7 +144,7 @@ stages:
             env:
               ARM_USE_AZUREAD: true
 
-          # 4️⃣ Terraform Apply
+          # 3. terraform apply
           - task: TerraformTaskV4@4
             displayName: "Terraform Apply"
             inputs:
@@ -156,6 +156,7 @@ stages:
                 -input=false
                 -auto-approve
                 -var "resource_group_name=$(rgName)"
+                -var "service_plan_name=$(servicePlanName)"
                 -var "web_app_name=$(appServicePrefix)-$(Build.SourceBranchName)"
                 -var "image_name=$(imageName)"
                 -var "image_tag=$(imageTag)"
@@ -163,7 +164,7 @@ stages:
             env:
               ARM_USE_AZUREAD: true
 
-          # 5️⃣ Deploy the new image to the Web App slot
+          # 4. Deploy container to Web App
           - task: AzureWebAppContainer@1
             displayName: "Deploy to Azure Web App"
             inputs:

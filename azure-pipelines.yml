@@ -6,13 +6,13 @@ trigger:
 
 # ────────────────────────── Global variables ──────────────────────────────
 variables:
-  imageName: azdevops-cicd-sample
-  azureSubscription: AzureSubscriptionConnection
-  acrName: nithinkatruacr
-  rgName: ci-cd-rg
-  tfStateStorageAccount: tfstateYourSuffix
-  tfStateContainer: tfstate
-  sonarOrg: akhilmano1
+  imageName: azdevops-cicd-sample                # Docker tag base
+  azureSubscription: AzureSubscriptionConnection # ARM service connection
+  acrName: nithinkatruacr                        # Azure Container Registry
+  rgName: ci-cd-rg                               # Resource group for Web App
+  tfStateStorageAccount: tfstateYourSuffix       # Remote state storage
+  tfStateContainer: tfstate                      # Remote state container
+  sonarOrg: akhilmano1                           # SonarCloud organization
 
 # ────────────────────── Stage: Build / Test / Scan ────────────────────────
 stages:
@@ -109,11 +109,13 @@ stages:
           steps:
           - checkout: self
 
+          # Install Terraform (exact version)
           - task: TerraformInstaller@0
             displayName: "Install Terraform"
             inputs:
-              terraformVersion: 1.7.5        # exact version or 'latest'
+              terraformVersion: 1.7.5          # exact or 'latest'
 
+          # ──────────────── Terraform Init ────────────────
           - task: TerraformTaskV4@4
             displayName: "Terraform Init"
             inputs:
@@ -128,6 +130,7 @@ stages:
             env:
               ARM_USE_AZUREAD: true
 
+          # ──────────────── Terraform Apply ────────────────
           - task: TerraformTaskV4@4
             displayName: "Terraform Apply"
             inputs:
@@ -135,7 +138,7 @@ stages:
               command: apply
               workingDirectory: terraform
               environmentServiceNameAzureRM: $(azureSubscription)
-              commandOptions: |
+              commandOptions: >-
                 -input=false
                 -auto-approve
                 -var "environment=$(Build.SourceBranchName)"
@@ -143,6 +146,7 @@ stages:
             env:
               ARM_USE_AZUREAD: true
 
+          # ───────────── Deploy container to Azure Web App ─────────────
           - task: AzureWebAppContainer@1
             displayName: "Deploy to Azure Web App"
             inputs:

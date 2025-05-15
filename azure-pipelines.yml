@@ -1,81 +1,55 @@
 trigger:
-  branches:
-    include:
-      - main
-      - develop
+  branches: { include: [ main, develop ] }
 
-# ────────────────────────── Global variables ──────────────────────────────
+# ─────────────────────────── Variables ───────────────────────────
 variables:
-  # Build-time image tagging
-  imageName: azdevops-cicd-sample
-  imageTag: $(Build.BuildId)
+  imageName:  azdevops-cicd-sample
+  imageTag:   $(Build.BuildId)
 
-  # Azure DevOps service-connection (ARM)
-  azureSubscription: AzureSubscriptionConnection
+  azureSubscription: AzureSubscriptionConnection   # ARM service connection
 
-  # Azure resource names
-  rgName: ci-cd-rg                  # Resource Group
-  acrName: nithinkatruacr           # ACR
-  appServicePrefix: cicd-webapp     # WebApp name root
-  servicePlanName: cicd-asp         # App Service Plan name
+  rgName:           ci-cd-rg                       # Resource Group
+  acrName:          nithinkatruacr                 # ACR
+  appServicePrefix: cicd-webapp                    # WebApp name root
+  servicePlanName:  cicd-asp                       # App Service Plan
 
-  # Terraform remote-state
   tfStateStorageAccount: tfstateYourSuffix
-  tfStateContainer: tfstate
+  tfStateContainer:      tfstate
 
-  # SonarCloud
   sonarOrg: akhilmano1
 
-# ──────────────────────── Stage: Build / Test / Scan ──────────────────────
+# ─────────────────────────── Build stage ─────────────────────────
 stages:
 # ---------------------------------------------------------------- Build --
 - stage: Build
-  displayName: "CI: Build, Test & Sonar"
+  displayName: "CI: Build, Test, Lint, Sonar"
   jobs:
   - job: Build
-    displayName: "Self-Hosted Windows Build"
-    pool:
-      name: LocalSelfHostedPool1
-      demands:
-        - agent.os -equals Windows_NT
+    displayName: Build
+    pool: { name: LocalSelfHostedPool1, demands: [ "agent.os -equals Windows_NT" ] }
 
     steps:
     - checkout: self
-      persistCredentials: true
-
-    - script: |
-        echo "JAVA_HOME=%JAVA_HOME%"
-        java -version
-      displayName: "Verify Java"
-
     - task: AzureCLI@2
       displayName: "Login to ACR"
       inputs:
         azureSubscription: $(azureSubscription)
         scriptType: ps
         scriptLocation: inlineScript
-        inlineScript: |
-          az acr login --name $(acrName)
+        inlineScript: az acr login --name $(acrName)
 
     - task: NodeTool@0
-      displayName: "Use Node.js 20"
-      inputs:
-        versionSpec: "20.x"
+      inputs: { versionSpec: "20.x" }
 
-    - script: npm ci
-      displayName: "Install deps"
-      workingDirectory: $(Build.SourcesDirectory)
-
-    - script: npm run lint
-      displayName: "Lint"
-      workingDirectory: $(Build.SourcesDirectory)
-
-    - script: npm test
-      displayName: "Unit tests"
-      workingDirectory: $(Build.SourcesDirectory)
+    - script: npm ci             --cwd $(Build.SourcesDirectory)
+      displayName: "npm install"
+    - script: npm run lint       --cwd $(Build.SourcesDirectory)
+      displayName: "lint"
+    - script: npm test           --cwd $(Build.SourcesDirectory)
+      displayName: "unit tests"
 
     - task: PowerShell@2
-      displayName: "Build & push image"
+      displayName: "Build & push Docker image"
       inputs:
         targetType: inline
         workingDirectory: $(Build.SourcesDirectory)
@@ -83,8 +57,8 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(imageTag) .
           docker push $(acrName).azurecr.io/$(imageName):$(imageTag)
 
+    # (Sonar steps – remove if not needed)
     - task: SonarCloudPrepare@3
-      displayName: "Sonar – prepare"
       inputs:
         SonarCloud: SonarCloud
         organization: $(sonarOrg)
@@ -92,30 +66,19 @@ stages:
         configMode: manual
         cliProjectKey: akhilmano1_azure-devops-cicd-sample-Public
         cliProjectName: CI-CD Sample
-
     - task: SonarCloudAnalyze@3
-      displayName: "Sonar – analyze"
-
     - task: SonarCloudPublish@3
-      displayName: "Sonar – quality gate"
 
-    - publish: $(Build.ArtifactStagingDirectory)
-      artifact: drop
-
-# ────────────────────────── Stage: Deploy ────────────────────────────────
-# --------------------------------------------------------------- Deploy --
+# ─────────────────────────── Deploy stage ────────────────────────
 - stage: Deploy
-  displayName: "CD: Terraform + WebApp Deploy"
+  displayName: "CD: Terraform & WebApp"
   dependsOn: Build
 
   jobs:
   - deployment: Deploy
-    displayName: "Terraform + WebApp"
+    displayName: Deploy
     environment: $(Build.SourceBranchName)
-    pool:
-      name: LocalSelfHostedPool1
-      demands:
-        - agent.os -equals Windows_NT
+    pool: { name: LocalSelfHostedPool1, demands: [ "agent.os -equals Windows_NT" ] }
 
     strategy:
       runOnce:
@@ -125,41 +88,24 @@ stages:
 
           # 1️⃣ Install Terraform
           - task: TerraformInstaller@0
-            displayName: "Install Terraform 1.7.5"
-            inputs:
-              terraformVersion: 1.7.5   # use 'latest' if you prefer
+            inputs: { terraformVersion: 1.7.5 }
 
-          # 2️⃣ Detect whether the RG already exists
+          # 2️⃣ Check if the RG already exists
           - task: AzureCLI@2
-            displayName: "Detect existing RG"
             name: rgCheck
+            displayName: "Check RG existence"
             inputs:
               azureSubscription: $(azureSubscription)
               scriptType: ps
               scriptLocation: inlineScript
               inlineScript: |
                 $exists = az group exists --name $(rgName)
-                echo "Resource group exists? $exists"
+                Write-Host "RG exists? $exists"
                 echo "##vso[task.setvariable variable=RG_EXISTS]$exists"
 
-          # 3️⃣ Import RG into state if it already exists
+          # 3️⃣ Terraform init  (creates local state dir)
           - task: TerraformTaskV4@4
-            displayName: "Terraform import RG (conditional)"
-            condition: eq(variables.RG_EXISTS, 'true')
-            inputs:
-              provider: azurerm
-              command: import
-              workingDirectory: terraform
-              environmentServiceNameAzureRM: $(azureSubscription)
-              resourceAddress: azurerm_resource_group.rg
-              resourceId: /subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName)
-            env:
-              ARM_USE_AZUREAD: true
-            continueOnError: true   # OK if already imported
-
-          # 4️⃣ Terraform init
-          - task: TerraformTaskV4@4
-            displayName: "Terraform Init"
+            displayName: "Terraform init"
             inputs:
               provider: azurerm
               command: init
@@ -169,12 +115,26 @@ stages:
               backendAzureRmStorageAccountName: $(tfStateStorageAccount)
               backendAzureRmContainerName: $(tfStateContainer)
               backendAzureRmKey: terraform.tfstate
-            env:
-              ARM_USE_AZUREAD: true
+            env: { ARM_USE_AZUREAD: true }
+
+          # 4️⃣ Import RG *via PowerShell* only if it exists
+          - task: PowerShell@2
+            displayName: "Import RG if already in Azure"
+            condition: eq(variables.RG_EXISTS, 'true')
+            inputs:
+              targetType: inline
+              workingDirectory: terraform
+              script: |
+                Write-Host "Importing existing RG into Terraform state..."
+                terraform.exe import \
+                  azurerm_resource_group.rg \
+                  /subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName) `
+                  || Write-Host "Import skipped or already in state."
+            env: { ARM_USE_AZUREAD: true }
 
           # 5️⃣ Terraform apply
           - task: TerraformTaskV4@4
-            displayName: "Terraform Apply"
+            displayName: "Terraform apply"
             inputs:
               provider: azurerm
               command: apply
@@ -189,12 +149,11 @@ stages:
                 -var "image_name=$(imageName)"
                 -var "image_tag=$(imageTag)"
                 -var "acr_name=$(acrName)"
-            env:
-              ARM_USE_AZUREAD: true
+            env: { ARM_USE_AZUREAD: true }
 
-          # 6️⃣ Deploy container to Web App
+          # 6️⃣ Deploy image to Web App
           - task: AzureWebAppContainer@1
-            displayName: "Deploy to Azure Web App"
+            displayName: "Deploy container to App Service"
             inputs:
               azureSubscription: $(azureSubscription)
               resourceGroupName: $(rgName)

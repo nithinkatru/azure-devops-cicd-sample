@@ -3,24 +3,19 @@ trigger:
 
 # ─────────────────────────── Variables ───────────────────────────
 variables:
-  # Container image
   imageName:  azdevops-cicd-sample
   imageTag:   $(Build.BuildId)
 
-  # Azure DevOps ARM service-connection
   azureSubscription: AzureSubscriptionConnection
 
-  # Azure resource names
   rgName:           ci-cd-rg
   acrName:          nithinkatruacr
   appServicePrefix: cicd-webapp
   servicePlanName:  cicd-asp
 
-  # Terraform remote-state
   tfStateStorageAccount: tfstateYourSuffix
   tfStateContainer:      tfstate
 
-  # SonarCloud org (remove Sonar steps if you don’t use them)
   sonarOrg: akhilmano1
 
 # ─────────────────────────── Build stage ─────────────────────────
@@ -47,7 +42,6 @@ stages:
       displayName: "Use Node.js 20"
       inputs: { versionSpec: "20.x" }
 
-    # ------------ FIXED npm install step (single line, correct cwd) -------
     - script: npm ci --loglevel error
       displayName: "npm ci (install deps)"
       workingDirectory: $(Build.SourcesDirectory)
@@ -59,7 +53,6 @@ stages:
     - script: npm test
       displayName: "unit tests"
       workingDirectory: $(Build.SourcesDirectory)
-    # ---------------------------------------------------------------------
 
     - task: PowerShell@2
       displayName: "Build & push Docker image"
@@ -70,7 +63,6 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(imageTag) .
           docker push  $(acrName).azurecr.io/$(imageName):$(imageTag)
 
-    # (SonarCloud – optional)
     - task: SonarCloudPrepare@3
       inputs:
         SonarCloud: SonarCloud
@@ -130,32 +122,31 @@ stages:
               backendAzureRmKey: terraform.tfstate
             env: { ARM_USE_AZUREAD: true }
 
-         # 4️⃣ Import RG (PowerShell) — only if it exists
-- task: PowerShell@2
-  displayName: "Import RG if present"
-  condition: eq(variables.RG_EXISTS, 'true')
-  inputs:
-    targetType: inline
-    workingDirectory: terraform
-    script: |
-      Write-Host "Importing RG into Terraform state..."
-      terraform.exe import `
-        azurerm_resource_group.rg `
-        "/subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName)"
+          # 4️⃣ Import RG (PowerShell) — only if it exists
+          - task: PowerShell@2
+            displayName: "Import RG if present"
+            condition: eq(variables.RG_EXISTS, 'true')
+            inputs:
+              targetType: inline
+              workingDirectory: terraform
+              script: |
+                Write-Host "Importing RG into Terraform state..."
+                terraform.exe import `
+                  azurerm_resource_group.rg `
+                  "/subscriptions/065cdc71-cbc8-4c74-9214-17d87ae5ada1/resourceGroups/$(rgName)"
 
-      if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅  RG imported successfully."
-      }
-      elseif ($LASTEXITCODE -eq 1) {
-        Write-Host "ℹ️  RG is already in state or import skipped."
-        exit 0   # treat this as success so pipeline continues
-      }
-      else {
-        Write-Host "❌  Unexpected import error (exit $LASTEXITCODE)"
-        exit $LASTEXITCODE
-      }
-  env:
-    ARM_USE_AZUREAD: true
+                if ($LASTEXITCODE -eq 0) {
+                  Write-Host "✅  RG imported successfully."
+                }
+                elseif ($LASTEXITCODE -eq 1) {
+                  Write-Host "ℹ️  RG is already in state or import skipped."
+                  exit 0   # treat this as success so pipeline continues
+                }
+                else {
+                  Write-Host "❌  Unexpected import error (exit $LASTEXITCODE)"
+                  exit $LASTEXITCODE
+                }
+            env: { ARM_USE_AZUREAD: true }
 
           # 5️⃣ terraform apply
           - task: TerraformTaskV4@4

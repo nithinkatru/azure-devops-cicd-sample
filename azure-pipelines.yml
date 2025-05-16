@@ -153,9 +153,12 @@ stages:
                     --plan $planName `
                     --name $appName `
                     --deployment-container-image-name "mcr.microsoft.com/oss/nginx/nginx:latest"
-             
+                  Write-Host "✅ Web App created."
+                } else {
+                  Write-Host "✅ Web App already exists."
+                }
 
-        
+          # 2️⃣ Deploy the container image
           - task: AzureWebAppContainer@1
             displayName: "Deploy container to App Service"
             inputs:

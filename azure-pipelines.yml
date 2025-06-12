@@ -1,168 +1,112 @@
+# ────────────────────────── Triggers ─────────────────────────────
 trigger:
   branches:
     include:
       - main
-      - develop
+      - develop          # delete if not needed
 
+# ────────────────────────── Variables ────────────────────────────
 variables:
-  imageName:            azdevops-cicd-sample
-  imageTag:             $(Build.BuildId)
+  # Azure DevOps service connection pointing to your new Azure subscription
+  azureSubscription:   New-Azure-Conn
 
-  azureSubscription:    AzureSubscriptionConnection
+  # Azure resource names (already created in Central US)
+  rgName:              ci-cd-rg
+  acrName:             nithinkatruacr2
+  stagingWebAppName:   myapp-stg
+  prodWebAppName:      myapp-prd
 
-  rgName:               ci-cd-rg
-  acrName:              nithinkatruacr
-  appServicePrefix:     cicd-webapp
-  servicePlanName:      cicd-asp
-  location:             eastus
+  # Docker image metadata
+  imageName:           sample-web
+  imageTag:            $(Build.BuildId)
 
-  tfStateStorageAccount: tfstateYourSuffix
-  tfStateContainer:      tfstate
-
-  sonarOrg:             akhilmano1
-
+# ────────────────────────── Build Stage ──────────────────────────
 stages:
-
-# ─────────────────────────── Build ────────────────────────────
 - stage: Build
-  displayName: "CI: Build, Test, Lint, Sonar"
+  displayName: "CI – Build & Push Image"
   jobs:
   - job: Build
     displayName: Build
     pool:
-      name: LocalSelfHostedPool1
-      demands:
-        - agent.os -equals Windows_NT
+      vmImage: ubuntu-latest
 
     steps:
     - checkout: self
 
-    - task: AzureCLI@2
-      displayName: "Login to ACR"
-      inputs:
-        azureSubscription: $(azureSubscription)
-        scriptType: ps
-        scriptLocation: inlineScript
-        inlineScript: |
-          az acr login --name $(acrName)
-
+    # Node install / lint / tests (adjust to your project)
     - task: NodeTool@0
-      displayName: "Use Node.js 20"
       inputs:
         versionSpec: "20.x"
 
     - script: npm ci --loglevel error
       displayName: "npm ci"
-      workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm run lint
       displayName: "lint"
-      workingDirectory: $(Build.SourcesDirectory)
 
     - script: npm test
       displayName: "unit tests"
-      workingDirectory: $(Build.SourcesDirectory)
 
-    - task: PowerShell@2
-      displayName: "Build & push Docker image"
+    # Log in to ACR
+    - task: AzureCLI@2
+      displayName: "ACR login"
+      inputs:
+        azureSubscription: $(azureSubscription)
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az acr login --name $(acrName)
+
+    # Build & push Docker image
+    - task: Bash@3
+      displayName: "Build & push image"
       inputs:
         targetType: inline
-        workingDirectory: $(Build.SourcesDirectory)
         script: |
           docker build -t $(acrName).azurecr.io/$(imageName):$(imageTag) .
           docker push $(acrName).azurecr.io/$(imageName):$(imageTag)
 
-    - task: SonarCloudPrepare@3
-      displayName: "Sonar – prepare"
-      inputs:
-        SonarCloud: SonarCloud
-        organization: $(sonarOrg)
-        scannerMode: CLI
-        configMode: manual
-        cliProjectKey: akhilmano1_azure-devops-cicd-sample-Public
-        cliProjectName: CI-CD Sample
-
-    - task: SonarCloudAnalyze@3
-      displayName: "Sonar – analyze"
-
-    - task: SonarCloudPublish@3
-      displayName: "Sonar – publish"
-
-
-# ─────────────────────────── Deploy ────────────────────────────
-- stage: Deploy
-  displayName: "CD: Push container to existing App Service"
+# ─────────────── Deploy to Staging (automatic) ───────────────
+- stage: Deploy_Staging
+  displayName: "CD – Deploy to Staging"
   dependsOn: Build
-
   jobs:
-  - deployment: Deploy
-    displayName: Deploy
-    environment: $(Build.SourceBranchName)
+  - deployment: DeployStaging
+    environment: Staging
     pool:
-      name: LocalSelfHostedPool1
-      demands:
-        - agent.os -equals Windows_NT
-
+      vmImage: ubuntu-latest
     strategy:
       runOnce:
         deploy:
           steps:
-          - checkout: self
-
-          # 1️⃣ Ensure App Service Plan + Web App exist
-          - task: AzureCLI@2
-            displayName: "Create plan & webapp if absent"
-            inputs:
-              azureSubscription: $(azureSubscription)
-              scriptType: ps
-              scriptLocation: inlineScript
-              inlineScript: |
-                $ErrorActionPreference = 'Continue'
-                $rg        = "$(rgName)"
-                $planName  = "$(servicePlanName)"
-                $appName   = "$(appServicePrefix)-$(Build.SourceBranchName)"
-                $location  = "$(location)"
-
-                Write-Host "🔎 Checking App Service Plan '$planName'..."
-                az appservice plan show -g $rg -n $planName -o none 2>$null
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Host "➕ Creating App Service Plan '$planName'"
-                  az appservice plan create `
-                    --name $planName `
-                    --resource-group $rg `
-                    --sku B1 `
-                    --is-linux `
-                    --location $location
-
-                  Write-Host "⏳ Waiting for plan to become available..."
-                  do {
-                    Start-Sleep -Seconds 5
-                    az appservice plan show -g $rg -n $planName -o none 2>$null
-                  } while ($LASTEXITCODE -ne 0)
-                  Write-Host "✅ Plan provisioned successfully."
-                } else {
-                  Write-Host "✅ Plan already exists."
-                }
-
-                Write-Host "🔎 Checking Web App '$appName'..."
-                az webapp show -g $rg -n $appName -o none 2>$null
-                if ($LASTEXITCODE -ne 0) {
-                  Write-Host "➕ Creating Web App '$appName'"
-                  az webapp create `
-                    --resource-group $rg `
-                    --plan $planName `
-                    --name $appName `
-                    --deployment-container-image-name "mcr.microsoft.com/oss/nginx/nginx:latest"
-                  Write-Host "✅ Web App created."
-                } else {
-                  Write-Host "✅ Web App already exists."
-                }
-
-          # 2️⃣ Deploy the container image
+          - checkout: none
           - task: AzureWebAppContainer@1
-            displayName: "Deploy container to App Service"
+            displayName: "Update Staging Web App"
             inputs:
               azureSubscription: $(azureSubscription)
               resourceGroupName: $(rgName)
-              appName: "$(appServicePrefix)-$(Build.SourceBranchName)"
+              appName: $(stagingWebAppName)
+              imageName: "$(acrName).azurecr.io/$(imageName):$(imageTag)"
+
+# ─────────────── Promote to Production (approval) ─────────────
+- stage: Deploy_Prod
+  displayName: "CD – Promote to Production"
+  dependsOn: Deploy_Staging
+  condition: succeeded()
+  jobs:
+  - deployment: DeployProd
+    environment: Prod           # manual approval configured here
+    pool:
+      vmImage: ubuntu-latest
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - checkout: none
+          - task: AzureWebAppContainer@1
+            displayName: "Update Production Web App"
+            inputs:
+              azureSubscription: $(azureSubscription)
+              resourceGroupName: $(rgName)
+              appName: $(prodWebAppName)
               imageName: "$(acrName).azurecr.io/$(imageName):$(imageTag)"

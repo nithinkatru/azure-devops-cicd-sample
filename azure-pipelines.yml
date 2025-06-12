@@ -7,7 +7,6 @@ trigger:
 
 # ────────────────────────── Variables ────────────────────────────
 variables:
-  # Azure DevOps service connection pointing to your new Azure subscription
   azureSubscription:   New-Azure-Conn
 
   # Azure resource names (already created in Central US)
@@ -28,12 +27,13 @@ stages:
   - job: Build
     displayName: Build
     pool:
-      vmImage: ubuntu-latest
+      name: LocalSelfHostedPool1        # ← self-hosted agent pool
+      demands:
+        - agent.os -equals Windows_NT   # adjust/remove if your agent is Linux
 
     steps:
     - checkout: self
 
-    # Node install / lint / tests (adjust to your project)
     - task: NodeTool@0
       inputs:
         versionSpec: "20.x"
@@ -66,7 +66,7 @@ stages:
           docker build -t $(acrName).azurecr.io/$(imageName):$(imageTag) .
           docker push $(acrName).azurecr.io/$(imageName):$(imageTag)
 
-# ─────────────── Deploy to Staging (automatic) ───────────────
+# ───────────── Deploy to Staging (automatic) ─────────────
 - stage: Deploy_Staging
   displayName: "CD – Deploy to Staging"
   dependsOn: Build
@@ -74,7 +74,9 @@ stages:
   - deployment: DeployStaging
     environment: Staging
     pool:
-      vmImage: ubuntu-latest
+      name: LocalSelfHostedPool1
+      demands:
+        - agent.os -equals Windows_NT
     strategy:
       runOnce:
         deploy:
@@ -88,7 +90,7 @@ stages:
               appName: $(stagingWebAppName)
               imageName: "$(acrName).azurecr.io/$(imageName):$(imageTag)"
 
-# ─────────────── Promote to Production (approval) ─────────────
+# ───────────── Promote to Production (approval) ────────────
 - stage: Deploy_Prod
   displayName: "CD – Promote to Production"
   dependsOn: Deploy_Staging
@@ -97,7 +99,9 @@ stages:
   - deployment: DeployProd
     environment: Prod           # manual approval configured here
     pool:
-      vmImage: ubuntu-latest
+      name: LocalSelfHostedPool1
+      demands:
+        - agent.os -equals Windows_NT
     strategy:
       runOnce:
         deploy:
